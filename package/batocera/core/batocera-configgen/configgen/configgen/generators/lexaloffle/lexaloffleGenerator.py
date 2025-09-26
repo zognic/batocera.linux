@@ -11,12 +11,12 @@ from ..Generator import Generator
 
 if TYPE_CHECKING:
     from pathlib import Path
+
     from ...types import HotkeysContext
 
 PICO8_BIN_PATH: Final = BIOS / "pico-8" / "pico8"
 PICO8_ROOT_PATH: Final = ROMS / "pico8"
 PICO8_CONTROLLERS: Final = HOME / ".lexaloffle" / "pico-8" / "sdl_controllers.txt"
-
 VOX_BIN_PATH: Final = BIOS / "voxatron" / "vox"
 VOX_ROOT_PATH: Final = ROMS / "voxatron"
 VOX_CONTROLLERS: Final = HOME / ".lexaloffle" / "Voxatron" / "sdl_controllers.txt"
@@ -28,28 +28,20 @@ class LexaloffleGenerator(Generator):
     def getHotkeysContext(self) -> HotkeysContext:
         return {
             "name": "lexaloffle",
-            "keys": {
-                "exit": ["KEY_LEFTCTRL", "KEY_Q"],
-                "menu": "KEY_ENTER",
-                "reset": ["KEY_LEFTCTRL", "KEY_R"],
-            },
+            "keys": { "exit": ["KEY_LEFTCTRL", "KEY_Q"], "menu": "KEY_ENTER", "reset": [ "KEY_LEFTCTRL", "KEY_R" ] }
         }
 
     def generate(self, system, rom, playersControllers, metadata, guns, wheels, gameResolution):
-        if system.name == "pico8":
-            LIB_DIR = BIOS / "pico-8"
-            BIN_PATH = PICO8_BIN_PATH
-            CONTROLLERS = PICO8_CONTROLLERS
-            ROOT_PATH = PICO8_ROOT_PATH
-        elif system.name == "voxatron":
-            LIB_DIR = BIOS / "voxatron"
-            BIN_PATH = VOX_BIN_PATH
-            CONTROLLERS = VOX_CONTROLLERS
-            ROOT_PATH = VOX_ROOT_PATH
+        if (system.name == "pico8"):
+            BIN_PATH=PICO8_BIN_PATH
+            CONTROLLERS=PICO8_CONTROLLERS
+            ROOT_PATH=PICO8_ROOT_PATH
+        elif (system.name == "voxatron"):
+            BIN_PATH=VOX_BIN_PATH
+            CONTROLLERS=VOX_CONTROLLERS
+            ROOT_PATH=VOX_ROOT_PATH
         else:
-            raise BatoceraException(
-                f"The Lexaloffle generator has been called for an unknown system: {system.name}."
-            )
+            raise BatoceraException(f"The Lexaloffle generator has been called for an unknwon system: {system.name}.")
 
         if not BIN_PATH.exists():
             raise BatoceraException(f"Lexaloffle official binary not found at {BIN_PATH}")
@@ -57,16 +49,15 @@ class LexaloffleGenerator(Generator):
         if not os.access(BIN_PATH, os.X_OK):
             raise BatoceraException(f"{BIN_PATH} is not set as executable")
 
-        # the command to run (first element must be the binary)
+        # the command to run
         commandArray: list[str | Path] = [BIN_PATH]
         commandArray.extend(["-desktop", SCREENSHOTS])  # screenshots
-        commandArray.extend(["-windowed", "0"])  # full screen
-
+        commandArray.extend(["-windowed", "0"])                     # full screen
         # Display FPS
         if system.config.show_fps:
-            commandArray.extend(["-show_fps", "1"])
+                commandArray.extend(["-show_fps", "1"])
         else:
-            commandArray.extend(["-show_fps", "0"])
+                commandArray.extend(["-show_fps", "0"])
 
         rombase = rom.stem
 
@@ -78,27 +69,18 @@ class LexaloffleGenerator(Generator):
             commandArray.extend(["-root_path", fullpath.parent])
             rom = fullpath
         else:
-            commandArray.extend(["-root_path", ROOT_PATH])  # store carts from splore
+            commandArray.extend(["-root_path", ROOT_PATH]) # store carts from splore
 
-        if rombase.lower() == "splore" or rombase.lower() == "console":
+        if (rombase.lower() == "splore" or rombase.lower() == "console"):
             commandArray.extend(["-splore"])
         else:
             commandArray.extend(["-run", rom])
 
         controllersconfig = generate_sdl_game_controller_config(playersControllers)
         with ensure_parents_and_open(CONTROLLERS, "w") as file:
-            file.write(controllersconfig)
+               file.write(controllersconfig)
 
-        # Set LD_LIBRARY_PATH via env (merge with existing)
-        existing_library_path = os.environ.get("LD_LIBRARY_PATH", "")
-        lib_path_str = str(LIB_DIR)
-        env = {
-            "LD_LIBRARY_PATH": f"{existing_library_path}:{lib_path_str}"
-            if existing_library_path
-            else lib_path_str
-        }
-
-        return Command.Command(array=commandArray, env=env)
+        return Command.Command(array=commandArray, env={})
 
     def getInGameRatio(self, config, gameResolution, rom):
-        return 4 / 3
+        return 4/3
