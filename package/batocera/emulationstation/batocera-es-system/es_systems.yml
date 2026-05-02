@@ -4549,8 +4549,6 @@ xbox360:
   hardware: console
   extensions: [iso, xex, xbox360, zar]
   emulators:
-    xenia:
-      xenia: { requireAnyOf: [BR2_PACKAGE_XENIA], incompatible_extensions: [zar] }
     xenia-canary:
       xenia-canary: { requireAnyOf: [BR2_PACKAGE_XENIA_CANARY] }
   comment_en: |
