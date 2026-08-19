@@ -135,5 +135,6 @@ case "${ACTION}" in
         echo "backglass-fanart"
         echo "backglass-image"
         echo "backglass-marquee"
+        echo "backglass-map"
         ;;
 esac
