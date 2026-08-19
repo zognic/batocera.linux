@@ -47,6 +47,7 @@ std::string g_pending_game_thumbnail = "";
 std::string g_pending_game_fanart = "";
 std::string g_pending_game_image = "";
 std::string g_pending_game_marquee = "";
+std::string g_pending_game_map = "";
 
 bool g_pending_update = false;
 
@@ -334,6 +335,7 @@ void serverThreadFunc(int port) {
                         std::string res_fanart    = resolveAsset(system_val, path_val, "fanart", getJsonValue(json_data, "fanart"));
                         std::string res_image     = resolveAsset(system_val, path_val, "image", getJsonValue(json_data, "image"));
                         std::string res_marquee   = resolveAsset(system_val, path_val, "marquee", getJsonValue(json_data, "marquee"));
+                        std::string res_map       = resolveAsset(system_val, path_val, "map", getJsonValue(json_data, "map"));
 
                         {
                             std::lock_guard<std::mutex> lock(g_mutex);
@@ -344,6 +346,7 @@ void serverThreadFunc(int port) {
                             g_pending_game_fanart = res_fanart;
                             g_pending_game_image = res_image;
                             g_pending_game_marquee = res_marquee;
+                            g_pending_game_map = res_map;
                             g_pending_update = true;
                         }
                     }
@@ -747,12 +750,14 @@ int main(int argc, char* argv[]) {
     std::string game_fanart_path = "";
     std::string game_image_path = "";
     std::string game_marquee_path = "";
+    std::string game_map_path = "";
 
     Anim tex_sys_logo;
     Anim tex_game_thumbnail;
     Anim tex_game_fanart;
     Anim tex_game_image;
     Anim tex_game_marquee;
+    Anim tex_game_map;
 
     SDL_Texture* tex_sys_fullname = nullptr;
     SDL_Texture* tex_game_name = nullptr;
@@ -780,6 +785,7 @@ int main(int argc, char* argv[]) {
                 game_fanart_path = g_pending_game_fanart;
                 game_image_path = g_pending_game_image;
                 game_marquee_path = g_pending_game_marquee;
+                game_map_path = g_pending_game_map;
 
                 update_needed = true;
                 g_pending_update = false;
@@ -795,6 +801,7 @@ int main(int argc, char* argv[]) {
             free_AnimFrames(tex_game_fanart);
             free_AnimFrames(tex_game_image);
 	    free_AnimFrames(tex_game_marquee);
+	    free_AnimFrames(tex_game_map);
             if (tex_sys_fullname) { SDL_DestroyTexture(tex_sys_fullname); tex_sys_fullname = nullptr; }
             if (tex_game_name) { SDL_DestroyTexture(tex_game_name); tex_game_name = nullptr; }
             if (tex_game_desc) { SDL_DestroyTexture(tex_game_desc); tex_game_desc = nullptr; }
@@ -822,6 +829,10 @@ int main(int argc, char* argv[]) {
             if (!game_marquee_path.empty()) {
 	      IMG_LoadAnimTexture_at_resolution(tex_game_marquee.frames, renderer, game_marquee_path, winW, winH);
 	      initAnim(tex_game_marquee, SDL_GetTicks());
+	    }
+            if (!game_map_path.empty()) {
+	      IMG_LoadAnimTexture_at_resolution(tex_game_map.frames, renderer, game_map_path, winW, winH);
+	      initAnim(tex_game_map, SDL_GetTicks());
 	    }
 
             if (!sys_fullname.empty()) tex_sys_fullname = createTextTexture(renderer, font_header, sys_fullname, whiteColor, (int)(winW * 0.9f));
@@ -891,7 +902,17 @@ int main(int argc, char* argv[]) {
                     SDL_Rect boundary = {0, 0, winW, (int)(winH * 0.25f)};
                     renderHeaderText(renderer, tex_game_name, boundary);
                 }
-            } 
+            }
+            else if (g_current_theme == "backglass-map") {
+	      if (!tex_game_map.frames.empty()) {
+                    SDL_Rect boundary = {0, 0, winW, winH};
+		    updateAnim(tex_game_map, ticks);
+                    renderImage(renderer, tex_game_map.frames[tex_game_map.currentFrame].texture, boundary, "contain");
+                } else if (tex_game_name) {
+                    SDL_Rect boundary = {0, 0, winW, (int)(winH * 0.25f)};
+                    renderHeaderText(renderer, tex_game_name, boundary);
+                }
+            }
             else {
                 SDL_Rect topRect = {0, 0, winW, (int)(winH * 0.25f)};
                 if (!tex_game_marquee.frames.empty()) {
@@ -951,6 +972,7 @@ int main(int argc, char* argv[]) {
     free_AnimFrames(tex_game_fanart);
     free_AnimFrames(tex_game_image);
     free_AnimFrames(tex_game_marquee);
+    free_AnimFrames(tex_game_map);
     if (tex_sys_fullname) SDL_DestroyTexture(tex_sys_fullname);
     if (tex_game_name) SDL_DestroyTexture(tex_game_name);
     if (tex_game_desc) SDL_DestroyTexture(tex_game_desc);
