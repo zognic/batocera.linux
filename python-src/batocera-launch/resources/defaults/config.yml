@@ -302,9 +302,6 @@ gp32:
 gx4000:
   emulator: libretro
   core:     cap32
-gzdoom:
-  emulator: gzdoom
-  core:     gzdoom
 halflife:
   emulator: xash3d_fwgs
   core:     xash3d_fwgs
@@ -398,11 +395,8 @@ megaduck:
   emulator: libretro
   core:     sameduck
 model2:
-  emulator: model2emu
-  core:     model2emu
-  options:
-    videomode: max-1920x1080
-    hud_support: false
+  emulator: sm2-emu
+  core:     sm2-emu
 model3:
   emulator: supermodel
   core:     supermodel
@@ -771,6 +765,9 @@ tyrian:
 uqm:
   emulator: uqm
   core:     uqm
+uzdoom:
+  emulator: uzdoom
+  core:     uzdoom
 uzebox:
   emulator: libretro
   core:     uzem
