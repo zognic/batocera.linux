@@ -20,6 +20,7 @@ BATOCERA_LAUNCH_LOCAL_PYTHON_EXCLUSIONS = \
 		$(if $(BR2_PACKAGE_ABUSE),,abuse.py) \
 		$(if $(BR2_PACKAGE_AMIBERRY),,amiberry.py) \
 		$(if $(BR2_PACKAGE_APPLEWIN),,applewin.py) \
+		$(if $(BR2_PACKAGE_ARMSX2),,armsx2.py) \
 		$(if $(BR2_PACKAGE_AZAHAR),,azahar.py) \
 		$(if $(BR2_PACKAGE_BIGPEMU),,bigpemu.py) \
 		$(if $(BR2_PACKAGE_BSTONE),,bstone.py) \
@@ -34,6 +35,7 @@ BATOCERA_LAUNCH_LOCAL_PYTHON_EXCLUSIONS = \
 		$(if $(BR2_PACKAGE_DOSBOX),,dosbox.py) \
 		$(if $(BR2_PACKAGE_DOSBOX_STAGING),,dosbox_staging.py) \
 		$(if $(BR2_PACKAGE_DOSBOX_X),,dosboxx.py) \
+		$(if $(BR2_PACKAGE_DUCKSTATION)$(BR2_PACKAGE_DUCKSTATION_LEGACY),,duckstation.py) \
 		$(if $(BR2_PACKAGE_DXX_REBIRTH),,dxx_rebirth.py) \
 		$(if $(BR2_PACKAGE_EASYRPG_PLAYER),,easyrpg.py) \
 		$(if $(BR2_PACKAGE_ECWOLF),,ecwolf.py) \
@@ -42,6 +44,7 @@ BATOCERA_LAUNCH_LOCAL_PYTHON_EXCLUSIONS = \
 		$(if $(BR2_PACKAGE_PIFBA),,fba2x.py) \
 		$(if $(BR2_PACKAGE_FLATPAK),,flatpak.py) \
 		$(if $(BR2_PACKAGE_FSUAE),,fsuae.py) \
+		$(if $(BR2_PACKAGE_GAMETANK_EMULATOR),,gametank_emulator.py) \
 		$(if $(BR2_PACKAGE_GSPLUS),,gsplus.py) \
 		$(if $(BR2_PACKAGE_HATARI),,hatari.py) \
 		$(if $(BR2_PACKAGE_HCL),,hcl.py) \
@@ -57,6 +60,7 @@ BATOCERA_LAUNCH_LOCAL_PYTHON_EXCLUSIONS = \
 		$(if $(BR2_PACKAGE_NANOBOYADVANCE),,nanoboyadvance.py) \
 		$(if $(BR2_PACKAGE_OD_COMMANDER),,odcommander.py) \
 		$(if $(BR2_PACKAGE_OPENBOR4432)$(BR2_PACKAGE_OPENBOR6330)$(BR2_PACKAGE_OPENBOR6412)$(BR2_PACKAGE_OPENBOR6510)$(BR2_PACKAGE_OPENBOR7142)$(BR2_PACKAGE_OPENBOR7530),,openbor.py) \
+		$(if $(BR2_PACKAGE_OPENGOAL),,opengoal.py) \
 		$(if $(BR2_PACKAGE_OPENMSX),,openmsx.py) \
 		$(if $(BR2_PACKAGE_PCSX2X6),,pcsx2x6.py) \
 		$(if $(BR2_PACKAGE_PPSSPP),,ppsspp.py) \

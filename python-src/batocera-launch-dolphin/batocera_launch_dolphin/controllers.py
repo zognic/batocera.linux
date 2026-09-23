@@ -15,8 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-    from batocera_launch import Controller, Controllers, Emulator, Guns
-    from batocera_launch.devices.device import DeviceInfoMapping
+    from batocera_launch import Controller, Controllers, DeviceInfoMapping, Emulator, Guns
 
 _logger = logging.getLogger(__name__)
 
@@ -586,7 +585,7 @@ def generate_controller_config_any(
             f.write(f'Device = evdev/{nsamepad!s}/{pad.real_name.strip()}\n')
 
             if emulator.config.get_bool('use_pad_profiles'):
-                if not _generate_controller_config_any_from_profiles(f, pad, emulator):
+                if not _generate_controller_config_any_from_profiles(f, pad, emulator, extra_options or {}):
                     _generate_controller_config_any_auto(
                         f,
                         pad,
@@ -758,7 +757,7 @@ def _generate_controller_config_any_auto(
 
 
 def _generate_controller_config_any_from_profiles(
-    f: SupportsWrite[str], pad: Controller, emulator: Emulator, /
+    f: SupportsWrite[str], pad: Controller, emulator: Emulator, extra_options: Mapping[str, str], /
 ) -> bool:
     glob_path: Path | None = None
     if emulator.system == 'gamecube':
@@ -784,6 +783,10 @@ def _generate_controller_config_any_from_profiles(
                 and device_vals.group(2).strip() == pad.real_name.strip()
             ):
                 _logger.debug('Eligible profile device found')
+                # Profiles don't store Source, so without it Dolphin leaves Wiimotes 2-4 at None
+                for key, val in extra_options.items():
+                    if not profile_config.has_option('Profile', key):
+                        f.write(f'{key} = {val}\n')
                 for key, val in profile_config.items('Profile'):
                     if key != 'Device':
                         f.write(f'{key} = {val}\n')

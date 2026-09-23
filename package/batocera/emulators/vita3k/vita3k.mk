@@ -3,8 +3,8 @@
 # vita3k
 #
 ################################################################################
-# Version: Commits on Sep 8, 2026
-VITA3K_VERSION = 257464af2fea1e3497d6df75ca3d3bb276e909a8
+# Version: Commits on Sep 17, 2026
+VITA3K_VERSION = ca2daeae8e949a9bd7eba56b4c2b639afe5b1a0e
 VITA3K_SITE = https://github.com/vita3k/vita3k
 VITA3K_SITE_METHOD = git
 VITA3K_GIT_SUBMODULES = YES
@@ -30,8 +30,7 @@ VITA3K_CONF_OPTS += -DCMAKE_C_COMPILER=$(HOST_DIR)/bin/clang \
                     -DCMAKE_BUILD_TYPE=Release \
                     -DBUILD_SHARED_LIBS=OFF \
                     -DUSE_DISCORD_RICH_PRESENCE=OFF \
-                    -DVITA3K_FORCE_SYSTEM_BOOST=ON \
-                    -DSDL_HIDAPI=OFF
+                    -DVITA3K_FORCE_SYSTEM_BOOST=ON
 
 ifeq ($(BR2_X86_CPU_HAS_AVX2),y)
 VITA3K_CONF_OPTS += -DXXH_X86DISPATCH_ALLOW_AVX=ON

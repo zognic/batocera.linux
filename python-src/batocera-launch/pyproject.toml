@@ -4,6 +4,10 @@ version = '44.0'
 dependencies = [
     'uvloop',
     'batocera-common',
+    'aiohttp',
+    'aiodns',
+    'brotli',
+    'lazy-loader',
 ]
 
 [project.scripts]
@@ -18,6 +22,7 @@ sh = 'batocera_launch.emulators.sh:Sh'
 abuse = 'batocera_launch.emulators.abuse:Abuse'
 amiberry = 'batocera_launch.emulators.amiberry:Amiberry'
 applewin = 'batocera_launch.emulators.applewin:AppleWin'
+armsx2 = 'batocera_launch.emulators.armsx2:Armsx2'
 azahar = 'batocera_launch.emulators.azahar:Azahar'
 bigpemu = 'batocera_launch.emulators.bigpemu:BigPEmu'
 bstone = 'batocera_launch.emulators.bstone:BStone'
@@ -32,6 +37,8 @@ dhewm3 = 'batocera_launch.emulators.dhewm3:Dhewm3'
 dosbox = 'batocera_launch.emulators.dosbox:DosBox'
 dosbox_staging = 'batocera_launch.emulators.dosbox_staging:DosBoxStaging'
 dosboxx = 'batocera_launch.emulators.dosboxx:DosBoxx'
+duckstation = 'batocera_launch.emulators.duckstation:Duckstation'
+duckstation-legacy = 'batocera_launch.emulators.duckstation:Duckstation'
 dxx-rebirth = 'batocera_launch.emulators.dxx_rebirth:DXXRebirth'
 easyrpg = 'batocera_launch.emulators.easyrpg:EasyRPG'
 ecwolf = 'batocera_launch.emulators.ecwolf:ECWolf'
@@ -40,6 +47,7 @@ etlegacy = 'batocera_launch.emulators.etlegacy:ETLegacy'
 fba2x = 'batocera_launch.emulators.fba2x:Fba2x'
 flatpak = 'batocera_launch.emulators.flatpak:Flatpak'
 fsuae = 'batocera_launch.emulators.fsuae:Fsuae'
+gametank-emulator = 'batocera_launch.emulators.gametank_emulator:GametankEmulator'
 gsplus = 'batocera_launch.emulators.gsplus:GSplus'
 hatari = 'batocera_launch.emulators.hatari:Hatari'
 hcl = 'batocera_launch.emulators.hcl:Hcl'
@@ -56,6 +64,7 @@ mugen = 'batocera_launch.emulators.mugen:Mugen'
 nanoboyadvance = 'batocera_launch.emulators.nanoboyadvance:Nanoboyadvance'
 odcommander = 'batocera_launch.emulators.odcommander:ODCommander'
 openbor = 'batocera_launch.emulators.openbor:Openbor'
+opengoal = 'batocera_launch.emulators.opengoal:OpenGOAL'
 openmsx = 'batocera_launch.emulators.openmsx:Openmsx'
 pcsx2x6 = 'batocera_launch.emulators.pcsx2x6:Pcsx2x6'
 ppsspp = 'batocera_launch.emulators.ppsspp:PPSSPP'
@@ -114,3 +123,4 @@ include = ["/batocera_launch"]
 minversion = "9.0"
 addopts = ["--import-mode=importlib", "--cov=batocera_launch", "--cov-branch", "--cov-report=term"]
 strict = true
+asyncio_mode = "auto"

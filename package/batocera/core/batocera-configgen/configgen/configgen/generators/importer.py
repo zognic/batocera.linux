@@ -9,12 +9,6 @@ if TYPE_CHECKING:
     from .Generator import Generator
 
 
-_LEGACY_GENERATOR_MAP: Final[dict[str, dict[str, tuple[str, str]]]] = {
-    'duckstation': {
-        'duckstation-legacy': ('duckstation_legacy.duckstationLegacyGenerator', 'DuckstationLegacyGenerator'),
-    }
-}
-
 _GENERATOR_MAP: Final[dict[str, tuple[str, str]]] = {
     'bstone': ('bstone.bstoneGenerator', 'BstoneGenerator'),
     'catacombgl': ('catacombgl.catacombglGenerator', 'CatacombGLGenerator'),
@@ -31,7 +25,6 @@ _GENERATOR_MAP: Final[dict[str, tuple[str, str]]] = {
     'ioquake3': ('ioquake3.ioquake3Generator', 'IOQuake3Generator'),
     'iortcw': ('iortcw.iortcwGenerator', 'IORTCWGenerator'),
     'jazz2-native': ('jazz2_native.jazz2_nativeGenerator', 'Jazz2_NativeGenerator'),
-    'linuxloader': ('linuxloader.linuxloaderGenerator', 'LinuxLoaderGenerator'),
     'openjazz': ('openjazz.openjazzGenerator', 'OpenJazzGenerator'),
     'openjk': ('openjk.openjkGenerator', 'OpenJKGenerator'),
     'openjkdf2': ('openjkdf2.openjkdf2Generator', 'OpenJKDF2Generator'),
@@ -51,9 +44,7 @@ _GENERATOR_MAP: Final[dict[str, tuple[str, str]]] = {
 }
 
 def get_generator(emulator: str, core: str) -> Generator:
-    if (cores := _LEGACY_GENERATOR_MAP.get(emulator)) and core in cores:
-        module_path, cls_name = cores[core]
-    elif emulator in _GENERATOR_MAP:
+    if emulator in _GENERATOR_MAP:
         module_path, cls_name = _GENERATOR_MAP[emulator]
     else:
         module_path = f'{emulator}.{emulator}Generator'

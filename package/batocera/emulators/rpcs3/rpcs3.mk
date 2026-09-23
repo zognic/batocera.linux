@@ -3,14 +3,19 @@
 # rpcs3
 #
 ################################################################################
-# Version: Commits on Sep 7, 2026
-RPCS3_VERSION = 54014a7de4b2ccec98c9c0cb7dbebec0606c5cd6
+# Version: Commits on Sep 17, 2026
+RPCS3_VERSION = 92721aedfe9dda00caae25a7aaf7e6b7d07213d0
 RPCS3_SITE = https://github.com/RPCS3/rpcs3.git
 RPCS3_SITE_METHOD=git
 RPCS3_GIT_SUBMODULES=YES
 RPCS3_LICENSE = GPLv2
 RPCS3_EMULATOR_INFO = rpcs3.emulator.yml
 RPCS3_SUPPORTS_IN_SOURCE_BUILD = NO
+
+# Version: Commits on Sep 18, 2026
+RPCS3_TRANSLATIONS_VERSION = 53cb606b2b3cb75951665e97111c85461de8269d
+RPCS3_EXTRA_DOWNLOADS = \
+    https://github.com/RPCS3/rpcs3_translations/archive/$(RPCS3_TRANSLATIONS_VERSION).tar.gz
 
 RPCS3_DEPENDENCIES += alsa-lib faudio ffmpeg flatbuffers host-clang host-lld
 RPCS3_DEPENDENCIES += libcurl libevdev libglew libglu libpng libusb libxml2 llvm
@@ -71,6 +76,16 @@ define RPCS3_INSTALL_EVMAPY
 endef
 
 RPCS3_POST_INSTALL_TARGET_HOOKS += RPCS3_INSTALL_EVMAPY
+
+# RPCS3 looks for its .qm files in Qt's TranslationsPath
+define RPCS3_INSTALL_TRANSLATIONS
+	mkdir -p $(TARGET_DIR)/usr/translations
+	$(TAR) -xzf $(RPCS3_DL_DIR)/$(RPCS3_TRANSLATIONS_VERSION).tar.gz \
+	    -C $(TARGET_DIR)/usr/translations --strip-components=2 \
+	    --wildcards '*/qm/*.qm'
+endef
+
+RPCS3_POST_INSTALL_TARGET_HOOKS += RPCS3_INSTALL_TRANSLATIONS
 
 $(eval $(cmake-package))
 $(eval $(emulator-info-package))

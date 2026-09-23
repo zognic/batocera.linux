@@ -10,7 +10,7 @@ from typing import Final
 from batocera_common.configparser import CaseSensitiveConfigParser
 from batocera_common.dataclasses import cached_dataclass, cached_property
 from batocera_common.paths import CACHE, CONFIGS
-from batocera_common.vulkan import get_discrete_gpu_name, has_discrete_gpu, is_available
+from batocera_common.vulkan import get_vulkan_info
 from batocera_launch import Command, Emulator, HotkeysContext, Input
 from batocera_launch.paths import DATAINIT_DIR, configure_emulator
 
@@ -183,7 +183,7 @@ class Pcsx2(Emulator):
 
         # Config files
         self._configure_reg()
-        self._configure_ini()
+        await self._configure_ini()
         self._configure_audio()
 
         command_array: list[str | Path] = (
@@ -251,7 +251,7 @@ class Pcsx2(Emulator):
             f.write('[SDL]\n')
             f.write('HostApi=alsa\n')
 
-    def _configure_ini(self) -> None:
+    async def _configure_ini(self) -> None:
         config_directory = self.config_dir
         config_file_name = config_directory / 'inis' / 'PCSX2.ini'
 
@@ -299,8 +299,6 @@ class Pcsx2(Emulator):
         pcsx2_ini_config.set('Folders', 'MemoryCards', '../../../saves/ps2/pcsx2')
         pcsx2_ini_config.set('Folders', 'Logs', '../../logs')
         pcsx2_ini_config.set('Folders', 'Cheats', '../../../cheats/ps2')
-        pcsx2_ini_config.set('Folders', 'CheatsWS', '../../../cheats/ps2/cheats_ws')
-        pcsx2_ini_config.set('Folders', 'CheatsNI', '../../../cheats/ps2/cheats_ni')
         pcsx2_ini_config.set('Folders', 'Cache', '../../cache/ps2')
         pcsx2_ini_config.set('Folders', 'Textures', 'textures')
         pcsx2_ini_config.set('Folders', 'InputProfiles', 'inputprofiles')
@@ -357,11 +355,6 @@ class Pcsx2(Emulator):
             )
             pcsx2_ini_config.set(
                 'Achievements',
-                'RichPresence',
-                self.config.get_bool('retroachievements.richpresence', return_values=('true', 'false')),
-            )
-            pcsx2_ini_config.set(
-                'Achievements',
                 'Leaderboards',
                 self.config.get_bool('retroachievements.leaderboards', return_values=('true', 'false')),
             )
@@ -376,7 +369,6 @@ class Pcsx2(Emulator):
                 self.config.get_bool('retroachievements.unofficial', return_values=('true', 'false')),
             )
         # set other settings
-        pcsx2_ini_config.set('Achievements', 'TestMode', 'false')
         pcsx2_ini_config.set('Achievements', 'UnofficialTestMode', 'false')
         pcsx2_ini_config.set('Achievements', 'Notifications', 'true')
         pcsx2_ini_config.set('Achievements', 'SoundEffects', 'true')
@@ -395,7 +387,7 @@ class Pcsx2(Emulator):
 
         # Renderer
         # Check Vulkan first to be sure
-        if is_available():
+        if vulkan_info := await get_vulkan_info():
             _logger.debug('Vulkan driver is available on the system.')
             renderer = '-1'
 
@@ -406,12 +398,11 @@ class Pcsx2(Emulator):
                     _logger.debug('User selected Software! Man you must have a fast CPU!')
                 elif gfxbackend == '14':
                     _logger.debug('User selected Vulkan')
-                    if has_discrete_gpu():
+                    if discrete_gpu := vulkan_info.active_discrete_gpu:
                         _logger.debug('A discrete GPU is available on the system. We will use that for performance')
-                        discrete_name = get_discrete_gpu_name()
-                        if discrete_name:
-                            _logger.debug('Using Discrete GPU Name: %s for PCSX2', discrete_name)
-                            pcsx2_ini_config.set('EmuCore/GS', 'Adapter', discrete_name)
+                        if discrete_gpu.name:
+                            _logger.debug('Using Discrete GPU Name: %s for PCSX2', discrete_gpu.name)
+                            pcsx2_ini_config.set('EmuCore/GS', 'Adapter', discrete_gpu.name)
                         else:
                             _logger.debug("Couldn't get discrete GPU Name")
                             pcsx2_ini_config.set('EmuCore/GS', 'Adapter', '(Default)')
@@ -545,7 +536,6 @@ class Pcsx2(Emulator):
         pcsx2_ini_config.set('Hotkeys', 'ToggleFullscreen', 'Keyboard/Alt & Keyboard/Return')
         pcsx2_ini_config.set('Hotkeys', 'CycleAspectRatio', 'Keyboard/F6')
         pcsx2_ini_config.set('Hotkeys', 'CycleInterlaceMode', 'Keyboard/F5')
-        pcsx2_ini_config.set('Hotkeys', 'CycleMipmapMode', 'Keyboard/Insert')
         pcsx2_ini_config.set('Hotkeys', 'GSDumpMultiFrame', 'Keyboard/Control & Keyboard/Shift & Keyboard/F8')
         pcsx2_ini_config.set('Hotkeys', 'Screenshot', 'Keyboard/F8')
         pcsx2_ini_config.set('Hotkeys', 'GSDumpSingleFrame', 'Keyboard/Shift & Keyboard/F8')

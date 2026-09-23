@@ -1,5 +1,6 @@
 shared_features:
   - powermode
+  - cpucluster
   - tdp
   - videomode
   - bezel
@@ -59,5 +60,7 @@ custom_features:
     choices:
       Enabled (Default): "true"
       Disabled: "false"
+file_extensions:
+  - game
 systems:
   - corsixth

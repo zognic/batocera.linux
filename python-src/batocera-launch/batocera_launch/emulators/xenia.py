@@ -12,7 +12,7 @@ import toml
 
 from batocera_common.dataclasses import cached_dataclass, cached_property
 from batocera_common.paths import CACHE, CONFIGS, SAVES
-from batocera_common.vulkan import get_version as vulkan_get_version, is_available as vulkan_is_available
+from batocera_common.vulkan import get_vulkan_info
 from batocera_common.wine import WINE_BASE, Runner
 from batocera_launch import BatoceraException, Command, Emulator, HotkeysContext
 from batocera_launch.paths import configure_emulator
@@ -56,20 +56,20 @@ class Xenia(Emulator):
         return True
 
     async def configure(self) -> Command:
-        if not vulkan_is_available():
+        vulkan_info = await get_vulkan_info()
+        if not vulkan_info:
             raise BatoceraException('Vulkan driver required is not available on the system')
 
         is_canary = self.core == 'xenia-canary'
 
-        vulkan_version = vulkan_get_version()
-        if vulkan_version > '1.3':
-            _logger.debug('Using Vulkan version: %s', vulkan_version)
+        if vulkan_info.version is not None and vulkan_info.version > '1.3':
+            _logger.debug('Using Vulkan version: %s', vulkan_info.version)
         elif self.config.get('xenia_api') == 'D3D12':
-            _logger.debug('Vulkan version %s is not compatible with Xenia when using D3D12', vulkan_version)
+            _logger.debug('Vulkan version %s is not compatible with Xenia when using D3D12', vulkan_info.version)
             _logger.debug('You may have performance & graphical errors, switching to native Vulkan')
             self.config['xenia_api'] = 'Vulkan'
         else:
-            _logger.debug('Vulkan version %s is not recommended with Xenia', vulkan_version)
+            _logger.debug('Vulkan version %s is not recommended with Xenia', vulkan_info.version)
 
         # Set here (not just on the launch command's own env below) since
         # install_wine_trick() below inherits the process environment, not
@@ -142,7 +142,8 @@ class Xenia(Emulator):
         config['CPU'] = {'break_on_unimplemented_instructions': False}  # hack, needed for certain games
         # default 1 = the full-version license, generally XBLA's first slot
         config['Content'] = {'license_mask': self.config.get_int('xenia_license', 1)}
-        config['D3D12'] = {'d3d12_readback_resolve': self.config.get_bool('xenia_readback_resolve')}
+        if not is_canary:
+            config['D3D12'] = {'d3d12_readback_resolve': self.config.get_bool('xenia_readback_resolve')}
         config['Display'] = {
             'fullscreen': True,
             'internal_display_resolution': self.config.get_int('xenia_resolution', 8),
@@ -150,10 +151,10 @@ class Xenia(Emulator):
                 'xenia_postprocess_scaling_and_sharpening', 'bilinear'
             ),
             'postprocess_antialiasing': self.config.get_str('xenia_postprocess_antialiasing', 'none'),
-            'postprocess_ffx_cas_additional_sharpness': self.config.get(
+            'postprocess_ffx_cas_additional_sharpness': self.config.get_float(
                 'xenia_postprocess_ffx_cas_additional_sharpness', 0.0
             ),
-            'postprocess_ffx_fsr_sharpness_reduction': self.config.get(
+            'postprocess_ffx_fsr_sharpness_reduction': self.config.get_float(
                 'xenia_postprocess_ffx_fsr_sharpness_reduction', 0.2
             ),
         }
@@ -164,12 +165,14 @@ class Xenia(Emulator):
             'framerate_limit': self.config.get_int('xenia_vsync_fps', 0),
             'clear_memory_page_state': self.config.get_bool('xenia_page_state'),
             'render_target_path_d3d12': self.config.get_str('xenia_target_path', 'rtv'),
-            'query_occlusion_fake_sample_count': self.config.get_int('xenia_query_occlusion', 1000),
             'texture_cache_memory_limit_hard': self.config.get_int('xenia_limit_hard', 768),
             'texture_cache_memory_limit_render_to_texture': self.config.get_int('xenia_limit_render_to_texture', 24),
             'texture_cache_memory_limit_soft': self.config.get_int('xenia_limit_soft', 384),
             'texture_cache_memory_limit_soft_lifetime': self.config.get_int('xenia_limit_soft_lifetime', 30),
         }
+        if not is_canary:
+            config['GPU']['query_occlusion_fake_sample_count'] = self.config.get_int('xenia_query_occlusion', 1000)
+
         config['General'] = {
             'discord': False,
             'apply_patches': self.config.get_bool('xenia_patches'),

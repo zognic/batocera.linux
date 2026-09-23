@@ -272,6 +272,9 @@ gamecube:
 gamegear:
   emulator: libretro
   core:     genesisplusgx
+gametank:
+  emulator: gametank-emulator
+  core:     gametank-emulator
 gamepock:
   emulator: libretro
   core:     mame
@@ -504,6 +507,9 @@ openbor:
     # none because some games fails by default with textures (street of rage 2x)
     bezel: none
     hud_support: false
+opengoal:
+  emulator: opengoal
+  core:     opengoal
 openjazz:
   emulator: openjazz
   core:     openjazz

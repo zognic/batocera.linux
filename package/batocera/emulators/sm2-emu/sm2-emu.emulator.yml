@@ -14,8 +14,7 @@ shared_features:
   - bezel.resize_tattoo
   - use_wheels
   - wheel_rotation
-  - wheel_deadzone
-  - wheel_midzone
+  - cpucluster
 custom_features:
   sm2_graphics_backend:
     group: GRAPHICS
@@ -75,6 +74,13 @@ custom_features:
       Faithful (Default): faithful
       xBR: xbr
       ScaleFX: scalefx
+  sm2_translucency:
+    group: GRAPHICS
+    prompt: TRANSLUCENCY
+    description: The hardware draws see-through surfaces as a checkerboard. Blended draws the 50% see-through it's trying to achieve. OpenGL/Vulkan only.
+    choices:
+      Stipple (Default): stipple
+      Blended: blended
   sm2_vsync:
     group: GRAPHICS
     prompt: VSYNC
@@ -173,5 +179,8 @@ custom_features:
       Off (Default): 0
       Light: 15
       Strong: 30
+file_extensions:
+  - zip
+  - 7z
 systems:
   - model2

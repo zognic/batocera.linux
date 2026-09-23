@@ -2,6 +2,7 @@ features:
   - padtokeyboard
 shared_features:
   - powermode
+  - cpucluster
   - tdp
   - videomode
   - bezel
@@ -180,9 +181,10 @@ custom_features:
     prompt: ALTERNATIVE SOUND
     description: Alternative sounds for the table (needs additional files).
     preset: switchauto
+file_extensions:
+  - vpx
 systems:
   - vpinball
-
 labwc:
   window_rules:
     - identifier: VPinballX_BGFX

@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import asyncio
 import filecmp
 import logging
 import re
 import shutil
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Self, cast
+from typing import Any, Final, cast
 
 import aiohttp
 from ruamel.yaml import YAML
@@ -20,14 +19,11 @@ from batocera_common.dict import merge
 from batocera_common.fs import directory_differences
 from batocera_common.paths import BIOS, CACHE, CONFIGS
 from batocera_common.yaml import safe_dump_yaml12, safe_load_yaml12
-from batocera_launch import BatoceraException, Command, Emulator, HotkeysContext
+from batocera_launch import BatoceraException, Command, Emulator, HotkeysContext, ParallelStartupTaskMixin, download
 from batocera_launch.paths import configure_emulator
 
 from .controllers import generate_controllers_config
 from .sfo import SFO
-
-if TYPE_CHECKING:
-    from types import TracebackType
 
 _logger = logging.getLogger(__name__)
 
@@ -416,42 +412,6 @@ def _merge_patch_config(config_file: Path, data: Mapping[str, Any], /) -> None:
         yaml.dump(existing, config_file)  # pyright: ignore
 
 
-async def _fetch_compatibility_database(target_path: Path, /) -> None:
-    """Download RPCS3 compatibility database to /tmp/rpcs3, compare, and update if changed."""
-    tmp_dir = Path('/tmp/rpcs3')
-    tmp_file = tmp_dir / target_path.name
-
-    try:
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-
-        async with (
-            aiohttp.ClientSession() as session,
-            session.get(
-                'https://api.rpcs3.net/config/?api=v1',
-                headers={'User-Agent': 'RPCS3/Batocera'},
-                timeout=aiohttp.ClientTimeout(total=15),
-            ) as response,
-        ):
-            tmp_file.write_bytes(await response.read())
-
-        # If destination doesn't exist or content has changed, overwrite it
-        if not target_path.exists() or not filecmp.cmp(tmp_file, target_path, shallow=False):
-            shutil.move(tmp_file, target_path)
-            _logger.debug('Updated RPCS3 compatibility database at %s', target_path)
-        else:
-            _logger.debug('RPCS3 compatibility database is already up to date')
-            tmp_file.unlink(missing_ok=True)
-
-    except Exception as e:
-        _logger.debug('Could not update RPCS3 compatibility database: %s', e)
-        if tmp_file.exists():
-            try:
-                tmp_file.unlink()
-            except OSError:
-                pass
-
-
 @dataclass(slots=True)
 class RPCS3Command(Command):
     async def run(self) -> int:
@@ -474,44 +434,26 @@ class RPCS3Command(Command):
 
 
 @cached_dataclass
-class RPCS3(Emulator):
-    compatibility_database_task: asyncio.Task[None] = field(init=False)
-
-    async def __aenter__(self) -> Self:
+class RPCS3(ParallelStartupTaskMixin, Emulator):
+    async def parallel_startup_task(self) -> None:
         # Start downloading the compatibility database ASAP in the background
-        self.compatibility_database_task = asyncio.create_task(
-            _fetch_compatibility_database(self.config_dir / 'GuiConfigs' / 'config_database.dat')
-        )
+        database_path = self.config_dir / 'GuiConfigs' / 'config_database.dat'
 
         try:
-            return await super().__aenter__()
-        except BaseException:
-            # Cancel the task if the context manager fails to enter (e.g. KeyboardInterrupt)
-            self.compatibility_database_task.cancel()
-            try:
-                # await the task and suppress the CancelledError to ensure aiohttp cleanup happens
-                await self.compatibility_database_task
-            except asyncio.CancelledError:
-                pass
-
-            raise
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-        /,
-    ) -> bool | None:
-        # Cancel the task if the context manager exits
-        self.compatibility_database_task.cancel()
-        try:
-            # await the task and suppress the CancelledError to ensure aiohttp cleanup happens
-            await self.compatibility_database_task
-        except asyncio.CancelledError:
-            pass
-
-        return await super().__aexit__(exc_type, exc_value, traceback)
+            async with download(
+                self.client_session,
+                'https://api.rpcs3.net/config/?api=v1',
+                database_path.parent,
+                headers={'User-Agent': 'RPCS3/Batocera'},
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as temp_file:
+                if not database_path.exists() or not filecmp.cmp(temp_file, database_path, shallow=False):
+                    temp_file.move(database_path)
+                    _logger.debug('Updated RPCS3 compatibility database at %s', database_path)
+                else:
+                    _logger.debug('RPCS3 compatibility database is already up to date')
+        except Exception:
+            _logger.exception('Could not update RPCS3 compatibility database')
 
     @cached_property
     def hotkeygen_context(self) -> HotkeysContext:
@@ -532,9 +474,11 @@ class RPCS3(Emulator):
     def in_game_ratio(self) -> float:
         return 16 / 9
 
-    @property
-    def needs_overlayfs(self) -> bool:
-        return True
+    def needs_overlayfs(self, rom: Path, /) -> bool:
+        # A PSN squashfs (dev_hdd0/game/<ID> layout) writes trophy/save data straight into
+        # that tree via the dev_hdd0 redirect below. A disc-dump squashfs (PS3_GAME/USRDIR)
+        # never writes through its rom, so it doesn't need one.
+        return (rom / 'dev_hdd0' / 'game').is_dir()
 
     @property
     def closest_screen_ratio(self) -> str:
@@ -836,7 +780,7 @@ class RPCS3(Emulator):
                 # Output Scaling
                 'Output Scaling Mode': self.config.get('rpcs3_scaling', 'Bilinear'),
                 # CAS Sharpening
-                'FidelityFX CAS Sharpening Intensity': self.config.get_int('rpcs3_fsr_sharpening', 50),
+                'FidelityFX CAS Sharpening Intensity': int(self.config.get_float('rpcs3_fsr_sharpening', 50)),
                 # Number of Shader Compilers
                 'Shader Compiler Threads': self.config.get_int('rpcs3_num_compilers', 0),
                 # Multithreaded RSX
@@ -1002,6 +946,4 @@ class RPCS3(Emulator):
                 'XDG_CACHE_HOME': CACHE,
                 'LC_ALL': 'C',
             },
-            # Wait for the compatibility database update to finish (or fail) before running the command
-            self.compatibility_database_task,
         )
