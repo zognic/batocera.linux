@@ -31,6 +31,19 @@ ifeq ($(BR2_PACKAGE_BATOCERA_TARGET_X86_64_ANY),y)
         $(@D)/nxp $(@D)/powervr $(@D)/qcom $(@D)/rockchip $(@D)/s5p-* \
         $(@D)/starfive $(@D)/sun $(@D)/sunxi $(@D)/sxg $(@D)/ti-keystone \
         $(@D)/v3d $(@D)/vc4 $(@D)/vicam
+    # SoC wifi, cameras, NPU, server NICs and Instinct GPUs
+    ALLLINUXFIRMWARES_REMOVE_DIRS += \
+        $(@D)/ath10k/QCA4019 $(@D)/ath10k/WCN3990 $(@D)/ath11k/IPQ* \
+        $(@D)/ath11k/WCN6750 $(@D)/ath12k/IPQ* $(@D)/mediatek/mt798* \
+        $(@D)/ti-connectivity $(@D)/intel/ice $(@D)/intel/ipu \
+        $(@D)/intel/qat $(@D)/intel/vpu $(@D)/intel/vsc \
+        $(@D)/amdgpu/aldebaran_* $(@D)/amdgpu/arcturus_* \
+        $(@D)/amdgpu/gc_9_4_[34]_* $(@D)/amdgpu/gc_9_5_0_* \
+        $(@D)/amdgpu/psp_13_0_6_* $(@D)/amdgpu/psp_13_0_1[24]_* \
+        $(@D)/amdgpu/sdma_4_4_[245].bin $(@D)/amdgpu/vcn_4_0_3.bin \
+        $(@D)/amdgpu/vcn_5_0_1.bin
+    # nouveau only falls back to 535 when 570 is missing
+    ALLLINUXFIRMWARES_REMOVE_DIRS += $(@D)/nvidia/*/gsp/*-535.113.01.bin
 endif
 
 # This removes strictly ARM/RISC-V SoC components while preserving all Wi-Fi/BT.
@@ -57,6 +70,11 @@ ifeq ($(BR2_PACKAGE_BRCMFMAC_SDIO_FIRMWARE_RPI)$(BR2_PACKAGE_EXTRALINUXFIRMWARES
     ALLLINUXFIRMWARES_REMOVE_DIRS += $(@D)/brcm
 endif
 
+# the rpi package ships these too, keep its newer firmware and matching clm_blob
+ifeq ($(BR2_PACKAGE_BRCMFMAC_SDIO_FIRMWARE_RPI),y)
+    ALLLINUXFIRMWARES_REMOVE_DIRS += $(@D)/cypress/cyfmac43430-sdio.* $(@D)/cypress/cyfmac43455-sdio.*
+endif
+
 # Remove snadragon SoC folder if not a Qualcomm board
 # Preserves ath10k/11k/12k wifi separately
 ifneq ($(BR2_PACKAGE_BATOCERA_TARGET_QUALCOMM_ANY),y)
@@ -79,9 +97,19 @@ define ALLLINUXFIRMWARES_INSTALL_TARGET_CMDS
     # Exclude defined directories
     rm -rf $(ALLLINUXFIRMWARES_REMOVE_DIRS)
 
-    # RK3588 specific: Keep only Bluetooth 'ibt-*' from the Intel folder
-    if [ "$BR2_PACKAGE_BATOCERA_TARGET_RK3588" = "y" ] || [ "$BR2_PACKAGE_BATOCERA_TARGET_RK3588_SDIO" = "y" ] || [ "$BR2_PACKAGE_BATOCERA_TARGET_RK3588_MAINLINE" = "y" ]; then \
-        find $(@D)/intel -type f ! -name 'ibt-*' -delete; \
+    # RK3588 specific: Keep only Bluetooth 'ibt-*' and iwlwifi from the Intel folder
+    if [ "$(BR2_PACKAGE_BATOCERA_TARGET_RK3588)" = "y" ] || [ "$(BR2_PACKAGE_BATOCERA_TARGET_RK3588_SDIO)" = "y" ] || [ "$(BR2_PACKAGE_BATOCERA_TARGET_RK3588_MAINLINE)" = "y" ]; then \
+        find $(@D)/intel -type f ! -name 'ibt-*' ! -path '*/iwlwifi/*' -delete; \
+    fi
+
+    # iwlwifi loads only the newest API it supports, keep one spare for a lagging kernel
+    if [ "$(BR2_PACKAGE_BATOCERA_TARGET_X86_64_ANY)" = "y" ]; then \
+        cd $(@D)/intel/iwlwifi && \
+        for f in *.ucode; do \
+            v=$${f##*-}; v=$${v%.ucode}; \
+            case $$v in c*) v=$$((100000 + $${v#c})) ;; esac; \
+            echo "$${f%-*} $$v $$f"; \
+        done | sort -k1,1 -k2,2nr | awk 'n[$$1]++ >= 2 { print $$3 }' | xargs -r rm -f; \
     fi
 
     # -n is mandatory while some other packages provides firmwares too
@@ -146,16 +174,6 @@ define ALLLINUXFIRMWARES_FIX_AMD_890M
         $(TARGET_DIR)/lib/firmware/amdgpu/isp_4_1_0.bin
 endef
 
-# symlink Bee-Link SER9 for a BIOS / firmware bug
-define ALLLINUXFIRMWARES_FIX_SER9
-    mkdir -p $(TARGET_DIR)/usr/share/batocera/firmware
-    mkdir -p $(TARGET_DIR)/etc/init.d
-    cp -f $(BR2_EXTERNAL_BATOCERA_PATH)/package/batocera/firmwares/alllinuxfirmwares/dcn_3_5_dmcub.bin \
-        $(TARGET_DIR)/usr/share/batocera/firmware/dcn_3_5_dmcub.bin
-    $(INSTALL) -m 0755 -D $(BR2_EXTERNAL_BATOCERA_PATH)/package/batocera/firmwares/alllinuxfirmwares/S03firmware \
-        $(TARGET_DIR)/etc/init.d/
-endef
-
 # Realtek BT symlinks for RK3588 kernel compatibility
 define ALLLINUXFIRMWARES_LINK_RTL_BT
     ln -sf /lib/firmware/rtl_bt/rtl8852bu_fw.bin $(TARGET_DIR)/lib/firmware/rtl8852bu_fw
@@ -166,7 +184,6 @@ endef
 ifeq ($(BR2_x86_64),y)
     ALLLINUXFIRMWARES_POST_INSTALL_TARGET_HOOKS += ALLLINUXFIRMWARES_LINK_QCA_WIFI_BT
     ALLLINUXFIRMWARES_POST_INSTALL_TARGET_HOOKS += ALLLINUXFIRMWARES_FIX_AMD_890M
-    ALLLINUXFIRMWARES_POST_INSTALL_TARGET_HOOKS += ALLLINUXFIRMWARES_FIX_SER9
 endif
 
 ifeq ($(BR2_PACKAGE_BATOCERA_TARGET_RK3588)$(BR2_PACKAGE_BATOCERA_TARGET_RK3588_SDIO)$(BR2_PACKAGE_BATOCERA_TARGET_RK3588_MAINLINE),y)

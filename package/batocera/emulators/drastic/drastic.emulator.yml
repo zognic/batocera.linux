@@ -2,6 +2,7 @@ shared_features:
   - powermode
   - cpucluster
   - tdp
+  - platformprofile
   - videomode
   - bezel
   - bezel_stretch
@@ -41,7 +42,7 @@ custom_features:
   drastic_threaded:
     group: ADVANCED OPTIONS
     prompt: THREADED 3D
-    description: Improves performance in 3D games. Can cause glitches.
+    description: Improves performance in 3D games. Some games then mix up the layers of the two screens, turn it off if the screens look wrong.
     choices:
       'Off': 0
       'On': 1
@@ -58,7 +59,8 @@ custom_features:
     choices:
       Vertical: 0
       Horizontal: 1
-      Single: 3
+      Single (Top): 2
+      Single (Bottom): 3
   drastic_shader:
     prompt: SCREEN SHADER
     description: Select a custom video shader filter.
@@ -97,3 +99,8 @@ file_extensions:
   - zip
 systems:
   - nds
+labwc:
+  window_rules:
+    - identifier: drastic
+      actions:
+        - name: SpanOutputs

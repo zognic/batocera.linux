@@ -101,6 +101,13 @@ ifeq ($(BR2_PACKAGE_FLYCAST),y)
   BATOCERA_DESKTOPAPPS_ICONS   += flycast.png
 endif
 
+# sm2-emu
+ifeq ($(BR2_PACKAGE_SM2_EMU),y)
+  BATOCERA_DESKTOPAPPS_SCRIPTS += batocera-config-sm2-emu
+  BATOCERA_DESKTOPAPPS_APPS    += sm2-emu-config.desktop
+  BATOCERA_DESKTOPAPPS_ICONS   += sm2-emu.png
+endif
+
 # scummvm
 ifeq ($(BR2_PACKAGE_SCUMMVM),y)
   BATOCERA_DESKTOPAPPS_SCRIPTS += batocera-config-scummvm
@@ -132,13 +139,6 @@ endif
 # flatpak
 ifeq ($(BR2_PACKAGE_BAUH),y)
   BATOCERA_DESKTOPAPPS_APPS    += flatpak-config.desktop
-endif
-
-# citron
-ifeq ($(BR2_PACKAGE_CITRON),y)
-  BATOCERA_DESKTOPAPPS_SCRIPTS += batocera-config-citron
-  BATOCERA_DESKTOPAPPS_APPS    += citron-config.desktop
-  BATOCERA_DESKTOPAPPS_ICONS   += citron.png
 endif
 
 # demul

@@ -33,6 +33,12 @@ msgstr "Profil audio"
 msgid "Audio Source"
 msgstr "Source audio"
 
+msgid "Auto"
+msgstr "Auto"
+
+msgid "BCC screen"
+msgstr "Écran du BCC"
+
 msgid "Balanced"
 msgstr "Equilibré"
 

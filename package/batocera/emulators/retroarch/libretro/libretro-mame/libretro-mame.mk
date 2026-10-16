@@ -8,7 +8,7 @@ LIBRETRO_MAME_VERSION = lrmame0289
 LIBRETRO_MAME_SITE = $(call github,libretro,mame,$(LIBRETRO_MAME_VERSION))
 LIBRETRO_MAME_LICENSE = MAME
 
-LIBRETRO_MAME_DEPENDENCIES = alsa-lib retroarch host-python3
+LIBRETRO_MAME_DEPENDENCIES = alsa-lib retroarch host-python3 batocera-launch-libretro-mame
 
 $(eval $(call register,mame.libretro.core.yml))
 $(eval $(call register-if-kconfig,BR2_PACKAGE_BATOCERA_TARGET_X86_64_ANY,sega-arcade.mame.libretro.core.yml))
@@ -36,8 +36,8 @@ else ifeq ($(BR2_riscv),y)
     LIBRETRO_MAME_EXTRA_ARGS += PTR64=0 LIBRETRO_CPU=riscv PLATFORM=riscv
 else ifeq ($(BR2_arm),y)
     LIBRETRO_MAME_EXTRA_ARGS += PTR64=0 LIBRETRO_CPU=arm PLATFORM=arm NOASM=1
-# workaround for linkage failure using ld on arm 32-bit targets
-    LIBRETRO_MAME_ARCHOPTS += -fuse-ld=gold -Wl,--long-plt
+# the binary outgrows the default short PLT entries
+    LIBRETRO_MAME_ARCHOPTS += -Wl,--long-plt
 else ifeq ($(BR2_aarch64),y)
     LIBRETRO_MAME_EXTRA_ARGS += PTR64=1 LIBRETRO_CPU=arm64 PLATFORM=arm64
     LIBRETRO_MAME_ARCHOPTS += -D__aarch64__

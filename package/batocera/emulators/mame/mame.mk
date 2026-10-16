@@ -30,7 +30,7 @@ MAME_JOBS := $(jobs)
 # Set PTR64 on/off according to architecture
 ifeq ($(BR2_ARCH_IS_64),y)
 MAME_CROSS_OPTS += PTR64=1
-ifeq ($(BR2_PACKAGE_BATOCERA_TARGET_SM8550)$(BR2_PACKAGE_BATOCERA_TARGET_SM8750),y)
+ifeq ($(BR2_PACKAGE_BATOCERA_TARGET_SM8550)$(BR2_PACKAGE_BATOCERA_TARGET_SM8650)$(BR2_PACKAGE_BATOCERA_TARGET_SM8750),y)
 # Temp hack for sm8550 architectures : disable WERROR to avoid C/CXX flag conflict for armv9 and armv8.x architectures as error
 MAME_CROSS_OPTS += NOWERROR=1
 endif
@@ -53,7 +53,7 @@ MAME_CROSS_ARCH = x86_64
 MAME_CROSS_OPTS += PLATFORM=x86
 MAME_ARCH = linux_x64
 # sm8550 has OpenGL
-else ifeq ($(BR2_PACKAGE_BATOCERA_TARGET_SM8550)$(BR2_PACKAGE_BATOCERA_TARGET_SM8750),y)
+else ifeq ($(BR2_PACKAGE_BATOCERA_TARGET_SM8550)$(BR2_PACKAGE_BATOCERA_TARGET_SM8650)$(BR2_PACKAGE_BATOCERA_TARGET_SM8750),y)
 MAME_CROSS_OPTS += NO_X11=1 NO_USE_XINPUT=1 NO_USE_BGFX_KHRONOS=1
 # other archs are embedded, no X11, no OpenGL (only ES)
 else
@@ -86,8 +86,8 @@ ifeq ($(BR2_arm),y)
 MAME_CROSS_ARCH = arm
 # Always enable NEON on 32-bit arm
 MAME_CFLAGS += -D__ARM_NEON__ -D__ARM_NEON -DEGL_NO_X11=1
-# workaround for linkage failure using ld on arm 32-bit targets
-MAME_LDFLAGS += -fuse-ld=gold -Wl,--long-plt
+# the binary outgrows the default short PLT entries
+MAME_LDFLAGS += -Wl,--long-plt
 endif
 
 ifeq ($(BR2_RISCV_64),y)
@@ -124,7 +124,7 @@ MAME_CFLAGS += -mcpu=cortex-a73.cortex-a53 -mtune=cortex-a73.cortex-a53
 endif
 
 ifeq ($(BR2_cortex_a76_a55),y)
-ifeq ($(BR2_PACKAGE_BATOCERA_TARGET_SM8550)$(BR2_PACKAGE_BATOCERA_TARGET_SM8750),y)
+ifeq ($(BR2_PACKAGE_BATOCERA_TARGET_SM8550)$(BR2_PACKAGE_BATOCERA_TARGET_SM8650)$(BR2_PACKAGE_BATOCERA_TARGET_SM8750),y)
 MAME_CFLAGS += -pipe -march=armv9-a+i8mm+sm4+sha3+rcpc+crypto+nosve+nosve2
 else
 MAME_CFLAGS += -mcpu=cortex-a76.cortex-a55 -mtune=cortex-a76.cortex-a55
@@ -260,13 +260,6 @@ define MAME_INSTALL_TARGET_CMDS
 	    $(TARGET_DIR)/usr/bin/mame/
 	cp -R $(BR2_EXTERNAL_BATOCERA_PATH)/package/batocera/emulators/mame/history	\
 	    $(TARGET_DIR)/usr/bin/mame/
-
-	# gameStop script when exiting a rotated screen (xorg)
-	if [ "$(BR2_PACKAGE_XSERVER_XORG_SERVER)" = "y" ]; then \
-		mkdir -p $(TARGET_DIR)/usr/share/batocera/launch/scripts; \
-		cp $(BR2_EXTERNAL_BATOCERA_PATH)/package/batocera/emulators/mame/rotation_fix.sh \
-			$(TARGET_DIR)/usr/share/batocera/launch/scripts/rotation_fix.sh; \
-	fi
 
 	# Copy user -autoboot_command overrides (batocera.linux/batocera.linux#11706)
 	mkdir -p $(MAME_CONF_INIT)/autoload

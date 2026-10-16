@@ -33,6 +33,12 @@ msgstr "Ses Profili"
 msgid "Audio Source"
 msgstr "Ses Kaynağı"
 
+msgid "Auto"
+msgstr "Otomatik"
+
+msgid "BCC screen"
+msgstr "BCC ekranı"
+
 msgid "Balanced"
 msgstr "Dengeli"
 

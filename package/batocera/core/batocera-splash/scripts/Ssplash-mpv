@@ -62,6 +62,51 @@ do_imagestart()
     fi
 }
 
+# Connect the panel the board kept off as DRM master, so fbdev defers the hotplug, and hold the fd until mpv is master
+enable_splash_output ()
+{
+    splash_output=$(batocera-settings-get-master splash.screen.output) || return
+    rm -f /var/run/splash-output.ready
+    python3 - "$splash_output" <<'EOF' >/dev/null 2>&1 &
+import fcntl, glob, os, sys, time
+out = sys.argv[1]
+fds = [os.open(c, os.O_RDWR) for c in glob.glob("/dev/dri/card[0-9]*")]
+for fd in fds:
+    for i in range(40):
+        try:
+            fcntl.ioctl(fd, 0x641e)
+            break
+        except OSError:
+            time.sleep(0.05)
+for st in glob.glob("/sys/class/drm/card*-%s/status" % out):
+    with open(st, "w") as f:
+        f.write("detect")
+    for i in range(20):
+        if open(st).read().strip() == "connected":
+            break
+        time.sleep(0.05)
+for fd in fds:
+    try:
+        fcntl.ioctl(fd, 0x641f)
+    except OSError:
+        pass
+open("/var/run/splash-output.ready", "w").close()
+for i in range(100):
+    try:
+        pid = open("/var/run/user-splash.pid").read().strip()
+        if any(os.readlink("/proc/%s/fd/%s" % (pid, f)).startswith("/dev/dri/card")
+               for f in os.listdir("/proc/%s/fd" % pid)):
+            break
+    except OSError:
+        pass
+    time.sleep(0.1)
+EOF
+    for i in $(seq 60); do
+        [ -e /var/run/splash-output.ready ] && break
+        sleep 0.05
+    done
+}
+
 get_connected_display() {
     local display_type="$1"
     local drm_connector=""
@@ -108,11 +153,14 @@ do_videostart ()
     fi
 
     ## current drm output ##
-    effectiveDrmOutput=$(for GPU in /dev/dri/card*; do batocera-drminfo "${GPU}" "current" 2>/dev/null | grep -oP '^[0-9]+\.[0-9]+:\K[^ ]+'; done | head -1)
+    if [ -n "$splash_output" ]; then
+        effectiveDrmOutput=${splash_output%%-*}
+    else
+        effectiveDrmOutput=$(for GPU in /dev/dri/card*; do batocera-drminfo "${GPU}" "current" 2>/dev/null | grep -oP '^[0-9]+\.[0-9]+:\K[^ ]+'; done | head -1)
+    fi
     
-    # Natively crop 16:9 on the GPU presentation plane.
-    mpv_video="--panscan=1.0" 
-    
+    mpv_video=""
+
     video_rotation=$(batocera-settings-get-master "display.rotate.${effectiveDrmOutput}")
     if test -z "${video_rotation}"
     then
@@ -127,7 +175,7 @@ do_videostart ()
     drm_mode="preferred"
     video_resize=$(batocera-settings-get-master splash.screen.resize)
     # If splash screen resize is empty then try the es resolution
-    if [[ -z "$video_resize" ]]; then
+    if [[ -z "$video_resize" && -z "$splash_output" ]]; then
         video_resize=$(batocera-settings-get-master es.resolution)
     fi
     if [[ -n "$video_resize" ]]; then
@@ -148,7 +196,8 @@ do_videostart ()
 
     # determine the output display to use for MPV
     # fixes splash video output where the user wants it
-    if preferred_display=$(batocera-settings-get-master global.videooutput); then
+    if [ -n "$splash_output" ] && preferred_display="$splash_output" ||
+       preferred_display=$(batocera-settings-get-master global.videooutput); then
         
         if [ "$DISPLAY_COMPOSITOR" = "labwc" ]; then
             echo "Splash: Preferred display is $preferred_display" >> "$log"
@@ -225,22 +274,65 @@ do_videostart ()
         "--sub-font=DejaVu Sans"
     )
 
-    if [ -n "$drm_connector" ] && [ -n "$card_path" ]; then
-        start-stop-daemon -S -b -q -m -p /var/run/user-splash.pid --exec /usr/bin/mpv -- --really-quiet --no-config %PLAYER_OPTIONS% "${mpv_fast_fonts[@]}" --drm-mode=$drm_mode --drm-connector=$drm_connector --drm-device=$card_path --log-file=/userdata/system/logs/mpv.log $mpv_audio $mpv_video "$video"
+    local mpv_log=/userdata/system/logs/mpv.log
+    rm -f "$mpv_log"
+
+    # a hand-typed rotated size (1080x1920) matches no physical mode, so swap it or fall back
+    if [ "$drm_mode" != "preferred" ]; then
+        local drm_args=() modes swapped
+        [ -n "$drm_connector" ] && [ -n "$card_path" ] && drm_args=(--drm-connector="$drm_connector" --drm-device="$card_path")
+        modes=$(mpv --no-config "${drm_args[@]}" --drm-mode=help 2>/dev/null | grep -oE '^ *Mode [0-9]+: [0-9]+x[0-9]+' | grep -oE '[0-9]+x[0-9]+')
+        if ! grep -qx "$drm_mode" <<< "$modes"; then
+            swapped="${drm_mode#*x}x${drm_mode%x*}"
+            if grep -qx "$swapped" <<< "$modes"; then
+                echo "Splash: mode $drm_mode not available, using $swapped" >> "$log"
+                drm_mode="$swapped"
+            else
+                echo "Splash: mode $drm_mode not available, using preferred" >> "$log"
+                drm_mode="preferred"
+            fi
+        fi
+    fi
+
+    # Natively crop 16:9 on the GPU presentation plane, except for a rotated video on a
+    # landscape screen, where it is better letterboxed than cropped to a sliver
+    local screen_mode=""
+    if [ "$drm_mode" != "preferred" ]; then
+        screen_mode=$drm_mode
+    elif [ -n "$drm_connector" ]; then
+        screen_mode=$(cat /sys/class/drm/card*-"$drm_connector"/modes 2>/dev/null | head -1)
+    fi
+    [ -z "$screen_mode" ] && read -r screen_mode < /sys/class/graphics/fb0/modes 2>/dev/null
+    screen_mode=${screen_mode#*:}
+    local screen_w=${screen_mode%%x*} screen_h=${screen_mode#*x}
+    screen_h=${screen_h%%[!0-9]*}
+    if [[ "$video_rotation" =~ ^(90|270)$ && "$screen_w" =~ ^[0-9]+$ && "$screen_h" =~ ^[0-9]+$ && "$screen_w" -gt "$screen_h" ]]; then
+        echo "Splash: rotated video on a landscape screen, letterboxing" >> "$log"
     else
-        start-stop-daemon -S -b -q -m -p /var/run/user-splash.pid --exec /usr/bin/mpv -- --really-quiet --no-config %PLAYER_OPTIONS% "${mpv_fast_fonts[@]}" --drm-mode=$drm_mode --log-file=/userdata/system/logs/mpv.log $mpv_audio $mpv_video "$video"
+        mpv_video="${mpv_video} --panscan=1.0"
+    fi
+
+    # Hold the last frame so fbdev never shows the other panel's logo here
+    [ -n "$splash_output" ] && mpv_video="${mpv_video} --keep-open=always"
+
+    if [ -n "$drm_connector" ] && [ -n "$card_path" ]; then
+        start-stop-daemon -S -b -q -m -p /var/run/user-splash.pid --exec /usr/bin/mpv -- --really-quiet --no-config %PLAYER_OPTIONS% "${mpv_fast_fonts[@]}" --drm-mode=$drm_mode --drm-connector=$drm_connector --drm-device=$card_path --log-file="$mpv_log" $mpv_audio $mpv_video "$video"
+    else
+        start-stop-daemon -S -b -q -m -p /var/run/user-splash.pid --exec /usr/bin/mpv -- --really-quiet --no-config %PLAYER_OPTIONS% "${mpv_fast_fonts[@]}" --drm-mode=$drm_mode --log-file="$mpv_log" $mpv_audio $mpv_video "$video"
     fi
 }
 
 case "$1" in
     start)
         printf 'Starting %s: ' "$DAEMON"
+        enable_splash_output
+        rm -f /var/run/system-splash.ready
         if grep -qE '^[ ]*splash.screen.enabled[ ]*=[ ]*1[ ]*$' "/boot/batocera-boot.conf"
         then
             do_start
             echo "OK"
-	else
-	    echo "SKIPPED"
+        else
+            echo "SKIPPED"
         fi
         ;;
     stop)

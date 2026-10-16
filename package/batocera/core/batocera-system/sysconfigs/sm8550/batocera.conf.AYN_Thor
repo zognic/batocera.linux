@@ -4,8 +4,11 @@
 global.videooutput=DSI-2
 global.videooutput2=DSI-1
 
+# Splash video on the bottom panel, the logo stays on the top
+splash.screen.output=DSI-1
+
 # Resolutions
-es.resolution=1080x1920.60000
+es.resolution=1080x1920.120000
 es.resolution2=1080x1240.59999
 
 # Rotate DRM for splash
@@ -16,8 +19,8 @@ display.handheld.DSI-1=1
 display.handheld.DSI-2=1
 
 # Rotate Wayland LabWC
-display.rotate.DSI-2=3
-display.rotate2.DSI-1=3
+display.rotate.DSI-2=1
+display.rotate2.DSI-1=1
 
 display.position=top-bottom
 

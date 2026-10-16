@@ -3,12 +3,12 @@
 # libserum
 #
 ################################################################################
-# Version: Commits on Jul 14, 2026
-LIBSERUM_VERSION = 5046e20351e7d4359e976b1edcdce34937c9289f
+# Version: Commits on Oct 11, 2026
+LIBSERUM_VERSION = bc164a9e70ecb64e9bec3e16d1e8a6b33b865066
 LIBSERUM_SITE = $(call github,ppuc,libserum,$(LIBSERUM_VERSION))
 LIBSERUM_LICENSE = GPLv2+
 LIBSERUM_LICENSE_FILES = LICENSE.md
-LIBSERUM_DEPENDENCIES = 
+LIBSERUM_DEPENDENCIES = libframeutil
 LIBSERUM_SUPPORTS_IN_SOURCE_BUILD = NO
 # Install to staging to build Visual Pinball Standalone
 LIBSERUM_INSTALL_STAGING = YES

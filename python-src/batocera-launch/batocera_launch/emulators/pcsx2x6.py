@@ -9,9 +9,17 @@ from typing import Final
 
 from batocera_common.configparser import CaseSensitiveConfigParser
 from batocera_common.dataclasses import cached_dataclass, cached_property
-from batocera_common.paths import BIOS, CACHE, CONFIGS, ROMS
+from batocera_common.paths import BIOS, CACHE, CONFIGS, ROMS, SAVES
 from batocera_common.vulkan import get_vulkan_info
-from batocera_launch import Command, Controllers, Emulator, HotkeysContext, SystemConfig
+from batocera_launch import (
+    Command,
+    Controllers,
+    Emulator,
+    Guns,
+    HotkeysContext,
+    SystemConfig,
+    guns_need_crosses,
+)
 from batocera_launch.paths import DATAINIT_DIR, configure_emulator
 
 _logger = logging.getLogger(__name__)
@@ -19,6 +27,22 @@ _logger = logging.getLogger(__name__)
 _PCSX2X6_BIN_DIR: Final = Path('/usr/pcsx2x6/bin')
 _PCSX2X6_RESOURCES_DIR: Final = _PCSX2X6_BIN_DIR / 'resources'
 _PCSX2X6_BIOS: Final = BIOS / 'namco2x6'
+_PCSX2X6_MEMCARDS: Final = SAVES / 'namco2x6' / 'pcsx2x6'
+
+_EVDEV_POINTER_PROPERTIES: Final = (
+    'ID_INPUT_MOUSE',
+    'ID_INPUT_TOUCHPAD',
+    'ID_INPUT_TOUCHSCREEN',
+    'ID_INPUT_TABLET',
+    'ID_INPUT_GUN',
+)
+_EVDEV_MAX_POINTERS: Final = 8
+_EVDEV_BUTTONS: Final = {
+    'left': 'LeftButton',
+    'right': 'RightButton',
+    'middle': 'MiddleButton',
+    **{str(n): f'Button{4 + n}' for n in range(1, 9)},
+}
 
 
 def _gfx_ratio_from_config(config: SystemConfig) -> str:
@@ -70,6 +94,57 @@ class Pcsx2x6(Emulator):
             return 16 / 9
         return 4 / 3
 
+    @cached_property
+    def rom_ini(self) -> CaseSensitiveConfigParser | None:
+        acgame = CaseSensitiveConfigParser(interpolation=None, strict=False)
+
+        try:
+            acgame.read(self.rom, encoding='utf-8')
+        except Exception as e:
+            _logger.warning('Could not read %s: %s', self.rom, e)
+            return None
+
+        return acgame
+
+    @cached_property
+    def rom_gameid(self) -> str:
+        if self.rom_ini is None:
+            return ''
+
+        return self.rom_ini.get('game', 'gameid', fallback='')
+
+    @cached_property
+    def rom_data_subdir(self) -> str:
+        if self.rom_ini is None:
+            return self.rom_gameid
+
+        return self.rom_ini.get('data', 'subdir', fallback=self.rom_gameid)
+
+    @cached_property
+    def rom_data_dongle_source(self) -> Path | None:
+        if self.rom_ini is None:
+            return None
+
+        name = self.rom_ini.get('data', 'dongle', fallback=f'{self.rom_gameid}.ps2')
+        return self.rom.parent / self.rom_data_subdir / name
+
+    @cached_property
+    def rom_sram(self) -> Path | None:
+        if self.rom_ini is None:
+            return None
+
+        return self.rom.parent / self.rom_data_subdir / self.rom_ini.get('data', 'sram', fallback='sram.bin')
+
+    def precalibrate_guns(self) -> None:
+        if self.system != 'namco2x6':
+            return
+
+        src = self.gun_precalibration_dir / self.rom.stem / 'sram.bin'
+
+        if self.rom_sram is not None and src.exists() and not self.rom_sram.exists():
+            self.rom_sram.parent.mkdir(parents=True, exist_ok=True)
+            src.copy(self.rom_sram)
+
     async def configure(self) -> Command:
         pcsx2_patches = _PCSX2X6_BIOS / 'patches.zip'
 
@@ -80,8 +155,13 @@ class Pcsx2x6(Emulator):
 
         # Config files
         _configure_reg(self.config_dir)
-        await _configure_ini(self.config_dir, self.config, self.rom, self.controllers)
+        await _configure_ini(self.config_dir, self.config, self.rom, self.controllers, self.guns)
         _configure_audio(self.config_dir)
+
+        if (dongle_source := self.rom_data_dongle_source) is not None and dongle_source.exists():
+            # pcsx2x6 only looks for the dongle in its memory card folder
+            _PCSX2X6_MEMCARDS.mkdir(parents=True, exist_ok=True)
+            shutil.copy(dongle_source, _PCSX2X6_MEMCARDS / dongle_source.name)
 
         command_array: list[str | Path] = (
             ['/usr/pcsx2x6/bin/pcsx2x6-qt']
@@ -125,6 +205,26 @@ def _configure_reg(config_directory: Path) -> None:
         f.write('RunWizard=0\n')
 
 
+def _evdev_pointer_slots() -> dict[str, int]:
+    import pyudev
+
+    nodes = [
+        device.device_node
+        for device in pyudev.Context().list_devices(subsystem='input')
+        if device.device_node is not None
+        and device.device_node.startswith('/dev/input/event')
+        and any(device.properties.get(name, '').startswith('1') for name in _EVDEV_POINTER_PROPERTIES)
+    ]
+    return {node: slot for slot, node in enumerate(nodes[:_EVDEV_MAX_POINTERS])}
+
+
+def _add_binding(config: CaseSensitiveConfigParser, section: str, key: str, binding: str) -> None:
+    # pcsx2x6 reads a repeated key as one more binding of the same input;
+    # configparser can't write a key twice, hence the newline
+    current = config.get(section, key, fallback='')
+    config.set(section, key, f'{current}\n{key} = {binding}' if current else binding)
+
+
 def _configure_audio(config_directory: Path) -> None:
     config_file_name = config_directory / 'inis' / 'spu2-x.ini'
     config_file_name.parent.mkdir(parents=True, exist_ok=True)
@@ -151,6 +251,7 @@ async def _configure_ini(
     config: SystemConfig,
     rom: Path,
     controllers: Controllers,
+    guns: Guns,
 ) -> None:
     config_file_name = config_directory / 'inis' / 'PCSX2.ini'
 
@@ -160,7 +261,7 @@ async def _configure_ini(
         with config_file_name.open('w') as f:
             f.write('[UI]\n')
 
-    pcsx2x6_ini_config = CaseSensitiveConfigParser(interpolation=None)
+    pcsx2x6_ini_config = CaseSensitiveConfigParser(interpolation=None, strict=False)
 
     if config_file_name.is_file():
         pcsx2x6_ini_config.read(config_file_name)
@@ -267,7 +368,6 @@ async def _configure_ini(
         )
     # set other settings
     pcsx2x6_ini_config.set('Achievements', 'TestMode', 'false')
-    pcsx2x6_ini_config.set('Achievements', 'UnofficialTestMode', 'false')
     pcsx2x6_ini_config.set('Achievements', 'Notifications', 'true')
     pcsx2x6_ini_config.set('Achievements', 'SoundEffects', 'true')
 
@@ -303,37 +403,24 @@ async def _configure_ini(
         pcsx2x6_ini_config.add_section('EmuCore/Speedhacks')
 
     # Renderer
-    # Check Vulkan first to be sure
-    if vulkan_info := await get_vulkan_info():
-        _logger.debug('Vulkan driver is available on the system.')
-        renderer = '-1'
-
-        if gfxbackend := config.get('pcsx2x6_gfxbackend'):
-            if gfxbackend == '12':
-                _logger.debug('User selected OpenGL')
-            if gfxbackend == '13':
-                _logger.debug('User selected Software! Man you must have a fast CPU!')
-            elif gfxbackend == '14':
-                _logger.debug('User selected Vulkan')
-                if discrete_gpu := vulkan_info.active_discrete_gpu:
-                    _logger.debug('A discrete GPU is available on the system. We will use that for performance')
-                    if discrete_gpu.name:
-                        _logger.debug('Using Discrete GPU Name: %s for PCSX2x6', discrete_gpu.name)
-                        pcsx2x6_ini_config.set('EmuCore/GS', 'Adapter', discrete_gpu.name)
-                    else:
-                        _logger.debug("Couldn't get discrete GPU Name")
-                        pcsx2x6_ini_config.set('EmuCore/GS', 'Adapter', '(Default)')
-                else:
-                    _logger.debug('Discrete GPU is not available on the system. Using default.')
-                    pcsx2x6_ini_config.set('EmuCore/GS', 'Adapter', '(Default)')
-            renderer = gfxbackend
-        else:
-            _logger.debug('User selected to Automatic')
-
-        pcsx2x6_ini_config.set('EmuCore/GS', 'Renderer', renderer)
-    else:
+    renderer = config.get('pcsx2x6_gfxbackend', '-1')
+    vulkan_info = await get_vulkan_info()
+    if renderer == '14' and not vulkan_info:
         _logger.debug('Vulkan driver is not available on the system. Falling back to Automatic')
-        pcsx2x6_ini_config.set('EmuCore/GS', 'Renderer', '-1')
+        renderer = '-1'
+    if renderer == '14' and vulkan_info:
+        if discrete_gpu := vulkan_info.active_discrete_gpu:
+            _logger.debug('A discrete GPU is available on the system. We will use that for performance')
+            if discrete_gpu.name:
+                _logger.debug('Using Discrete GPU Name: %s for PCSX2x6', discrete_gpu.name)
+                pcsx2x6_ini_config.set('EmuCore/GS', 'Adapter', discrete_gpu.name)
+            else:
+                _logger.debug("Couldn't get discrete GPU Name")
+                pcsx2x6_ini_config.set('EmuCore/GS', 'Adapter', '(Default)')
+        else:
+            _logger.debug('Discrete GPU is not available on the system. Using default.')
+            pcsx2x6_ini_config.set('EmuCore/GS', 'Adapter', '(Default)')
+    pcsx2x6_ini_config.set('EmuCore/GS', 'Renderer', renderer)
 
     # Ratio
     pcsx2x6_ini_config.set('EmuCore/GS', 'AspectRatio', config.get('pcsx2x6_ratio', 'Auto 4:3/3:2'))
@@ -348,7 +435,7 @@ async def _configure_ini(
     pcsx2x6_ini_config.set('EmuCore/GS', 'fxaa', config.get('pcsx2x6_fxaa', 'false'))
 
     # FMV Ratio
-    pcsx2x6_ini_config.set('EmuCore/GS', 'FMVAspectRatioSwitch', config.get('pcsx2x6_fmv_ratio', 'Auto 4:3/3:2'))
+    pcsx2x6_ini_config.set('EmuCore/GS', 'FMVAspectRatioSwitch', config.get('pcsx2x6_fmv_ratio', 'Off'))
 
     # Mipmapping
     # Upstream split the old tri-state "mipmap_hw" int setting (Off/Basic/Full) into two
@@ -356,7 +443,7 @@ async def _configure_ini(
     # PS2's own real mip data, mainly relevant to the software renderer). Preserve the original
     # 3-way intent across both keys: Off -> both false, Basic -> hw generated only,
     # Full -> both (use real PS2 data, still enabling hw mip generation as a fallback).
-    mipmapping = config.get('pcsx2x6_mipmapping', '0')
+    mipmapping = config.get('pcsx2x6_mipmapping', '2')
     pcsx2x6_ini_config.set('EmuCore/GS', 'hw_mipmap', 'false' if mipmapping == '0' else 'true')
     pcsx2x6_ini_config.set('EmuCore/GS', 'mipmap', 'true' if mipmapping == '2' else 'false')
 
@@ -415,7 +502,7 @@ async def _configure_ini(
     pcsx2x6_ini_config.set('EmuCore/GS', 'CropBottom', crop_overscan)
 
     # TV Shader
-    pcsx2x6_ini_config.set('EmuCore', 'TVShader', config.get('pcsx2x6_shaderset', '0'))
+    pcsx2x6_ini_config.set('EmuCore/GS', 'TVShader', config.get('pcsx2x6_shaderset', '0'))
 
     pcsx2x6_ini_config.set(
         'EmuCore', 'AutoIncrementSlot', config.get_bool('incrementalsavestates', True, return_values=('true', 'false'))
@@ -440,6 +527,8 @@ async def _configure_ini(
     pcsx2x6_ini_config.set('InputSources', 'Keyboard', 'true')
     pcsx2x6_ini_config.set('InputSources', 'Mouse', 'true')
     pcsx2x6_ini_config.set('InputSources', 'SDL', 'true')
+    pcsx2x6_ini_config.set('InputSources', 'Evdev', 'true' if guns else 'false')
+    pcsx2x6_ini_config.remove_section('Evdev')
 
     ## [Hotkeys]
     if not pcsx2x6_ini_config.has_section('Hotkeys'):
@@ -667,12 +756,44 @@ async def _configure_ini(
         'Inufuku_4_P2': f'{p2_sdl}/FaceEast',
         # Generic & Special buttons mapping
         'P1_Button1': f'{p1_sdl}/FaceSouth',
+        'P2_Button1': f'{p2_sdl}/FaceSouth',
+        'P1_Service': f'{p1_sdl}/LeftStick',
+        'P2_Service': f'{p2_sdl}/LeftStick',
+        'ToggleTestMode': f'{p1_sdl}/RightStick',
         'Coin1': f'{p1_sdl}/Back',
         'P1_Start': f'{p1_sdl}/Start',
+        'P2_Start': f'{p2_sdl}/Start',
     }
 
     for k, v in jvs_mappings.items():
         pcsx2x6_ini_config.set('JVS', k, v)
+
+    if pad2 is not None:
+        _add_binding(pcsx2x6_ini_config, 'JVS', 'Coin1', f'{p2_sdl}/Back')
+
+    slots = _evdev_pointer_slots() if guns else {}
+    crosshair = config.get_bool('pcsx2x6_crosshairs', guns_need_crosses(guns))
+    for player, gun in enumerate(guns[:2], start=1):
+        if (slot := slots.get(gun.node)) is None:
+            continue
+
+        usb = f'USB{player}'
+        pcsx2x6_ini_config.add_section(usb)
+        pcsx2x6_ini_config.set(usb, 'guncon2_Pointer', f'Pointer-{slot}')
+        pcsx2x6_ini_config.set(
+            usb, 'guncon2_cursor_path', str(_PCSX2X6_RESOURCES_DIR / 'crosshairs' / 'default.png') if crosshair else ''
+        )
+        pcsx2x6_ini_config.set(usb, 'guncon2_cursor_color', '#0000ff' if player == 1 else '#ff0000')
+
+        for section, key, button in (
+            (usb, 'guncon2_Trigger', 'left'),
+            (usb, 'guncon2_A', 'right'),
+            ('JVS', f'P{player}_Start', 'middle'),
+            ('JVS', 'Coin1', '1'),
+            ('JVS', f'P{player}_Button1', '2'),
+        ):
+            if button in gun.buttons:
+                _add_binding(pcsx2x6_ini_config, section, key, f'EvdevMouse-{slot}/{_EVDEV_BUTTONS[button]}')
 
     ## [GameList]
     if not pcsx2x6_ini_config.has_section('GameList'):

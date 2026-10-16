@@ -11,6 +11,7 @@ from batocera_launch import (
     Command,
     Emulator,
     HotkeysContext,
+    precalibrate_reicast_guns,
 )
 
 from .controllers import generate_controller_config, generate_keyboard_config
@@ -32,8 +33,8 @@ class Flycast(Emulator):
             'keys': {
                 'exit': 'KEY_F7',
                 'menu': 'KEY_TAB',
-                'save_state': 'KEY_F8',
-                'restore_state': 'KEY_F9',
+                'save_state': 'KEY_F9',
+                'restore_state': 'KEY_F8',
                 'fastforward': 'KEY_SPACE',
             },
         }
@@ -57,6 +58,9 @@ class Flycast(Emulator):
     @cached_property
     def mapping_dir(self) -> Path:
         return self.config_dir / 'mappings'
+
+    def precalibrate_guns(self) -> None:
+        precalibrate_reicast_guns(self.system, self.rom, self.gun_precalibration_dir, self.saves_dir)
 
     async def configure(self) -> Command:
         config = CaseSensitiveConfigParser(interpolation=None)
@@ -162,8 +166,6 @@ class Flycast(Emulator):
         # save / load states
         config.set('config', 'Dreamcast.AutoLoadState', self.config.get_str('flycast_loadstate', 'no'))
         config.set('config', 'Dreamcast.AutoSaveState', self.config.get_str('flycast_savestate', 'no'))
-        # windows CE
-        config.set('config', 'Dreamcast.ForceWindowsCE', self.config.get_str('flycast_winCE', 'no'))
         # Per-game VMU
         config.set('config', 'PerGameVmu', self.config.get_bool('flycast_per_game_vmu', return_values=('yes', 'no')))
         # DSP

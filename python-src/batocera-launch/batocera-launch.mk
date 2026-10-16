@@ -12,7 +12,10 @@ BATOCERA_LAUNCH_DEPENDENCIES = \
 	python-pyudev \
 	python-toml \
 	python-pillow \
-	python-qrcode
+	python-qrcode \
+	python3-configobj \
+	batocera-bezel-overlay \
+	hotkeygen
 BATOCERA_LAUNCH_INSTALL_STAGING = YES
 
 BATOCERA_LAUNCH_LOCAL_PYTHON_EXCLUSIONS = \
@@ -41,7 +44,6 @@ BATOCERA_LAUNCH_LOCAL_PYTHON_EXCLUSIONS = \
 		$(if $(BR2_PACKAGE_ECWOLF),,ecwolf.py) \
 		$(if $(BR2_PACKAGE_EDUKE32),,eduke32.py) \
 		$(if $(BR2_PACKAGE_ETLEGACY),,etlegacy.py) \
-		$(if $(BR2_PACKAGE_PIFBA),,fba2x.py) \
 		$(if $(BR2_PACKAGE_FLATPAK),,flatpak.py) \
 		$(if $(BR2_PACKAGE_FSUAE),,fsuae.py) \
 		$(if $(BR2_PACKAGE_GAMETANK_EMULATOR),,gametank_emulator.py) \
@@ -132,7 +134,6 @@ define BATOCERA_LAUNCH_INSTALL_STAGING_DEFAULT_OPTIONS
 endef
 
 define BATOCERA_LAUNCH_INSTALL_RESOURCES
-	mkdir -p $(TARGET_DIR)/usr/share/batocera/launch/scripts
 	mkdir -p $(TARGET_DIR)/usr/share/evmapy
 
 	$(INSTALL) -D -m 0644 -t $(TARGET_DIR)/usr/share/batocera/launch/data \
@@ -141,28 +142,13 @@ define BATOCERA_LAUNCH_INSTALL_RESOURCES
 	$(INSTALL) -D -m 0644 -t $(TARGET_DIR)/usr/share/batocera/launch/data/special \
 		$(@D)/resources/data/special/*.toml
 
-	$(INSTALL) -m 0755 -t $(TARGET_DIR)/usr/share/batocera/launch/scripts \
-		$(@D)/resources/scripts/powermode_launch_hooks.sh
-
 	# evmapy default hotkeys file
 	$(INSTALL) -D -m 0644 -t $(TARGET_DIR)/usr/share/evmapy \
 		$(@D)/resources/hotkeys.keys
 endef
 
-define BATOCERA_LAUNCH_INSTALL_X86_64_SCRIPTS
-	mkdir -p $(TARGET_DIR)/usr/share/batocera/launch/scripts
-
-	$(INSTALL) -m 0755 -t $(TARGET_DIR)/usr/share/batocera/launch/scripts \
-		$(@D)/resources/scripts/tdp_hooks.sh \
-		$(@D)/resources/scripts/nvidia-workaround.sh
-endef
-
 BATOCERA_LAUNCH_POST_INSTALL_TARGET_HOOKS += BATOCERA_LAUNCH_INSTALL_TARGET_DEFAULT_OPTIONS
 BATOCERA_LAUNCH_POST_INSTALL_TARGET_HOOKS += BATOCERA_LAUNCH_INSTALL_RESOURCES
-
-ifeq ($(BR2_PACKAGE_BATOCERA_TARGET_X86_64_ANY),y)
-BATOCERA_LAUNCH_POST_INSTALL_TARGET_HOOKS += BATOCERA_LAUNCH_INSTALL_X86_64_SCRIPTS
-endif
 
 BATOCERA_LAUNCH_POST_INSTALL_STAGING_HOOKS += BATOCERA_LAUNCH_INSTALL_STAGING_DEFAULT_OPTIONS
 

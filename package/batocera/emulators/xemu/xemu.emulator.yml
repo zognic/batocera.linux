@@ -2,6 +2,7 @@ shared_features:
   - powermode
   - cpucluster
   - tdp
+  - platformprofile
   - videomode
   - bezel
   - bezel_stretch
@@ -91,9 +92,6 @@ custom_features:
     preset: input
 file_extensions:
   - iso
+  - squashfs
 systems:
-  - chihiro
-  - name: xbox
-    file_extensions:
-      add:
-        - squashfs
+  - xbox

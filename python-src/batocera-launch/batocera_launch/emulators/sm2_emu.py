@@ -17,6 +17,9 @@ _logger: Final = logging.getLogger(__name__)
 
 _NVRAM_SRC: Final = Path('/usr/share/sm2-emu/nvram')
 
+# evdev codes of the gun buttons: left, right, middle, 1
+_GUN_BUTTONS: Final = {'trigger': 0x110, 'reload': 0x111, 'start': 0x112, 'coin': 0x101}
+
 _GEAR_UP_INPUTS: Final = ['pagedown', 'r1', 'right_shoulder']  # right paddle
 _GEAR_DOWN_INPUTS: Final = ['pageup', 'l1', 'left_shoulder']  # left paddle
 
@@ -51,12 +54,19 @@ def _wheel_axes(pad: Controller, /) -> dict[str, str]:
 
     relaxed = pad.get_mapping_axis_relaxed_values()
 
+    # pedals on one axis each use half of it, pressed the way es saw it pressed
+    shared = accel is not None and brake is not None and accel[1] == brake[1]
+
     def axis_id(found: tuple[str, int] | None) -> str:
         return str(found[1]) if found is not None else '-1'
 
     # sm2-emu inverts a pedal that rests at the positive end, which is es's 'reversed'
     def inverted(found: tuple[str, int] | None) -> str:
-        return _ini_bool(found is not None and (axis := relaxed.get(found[0])) is not None and axis['reversed'])
+        if found is None:
+            return _ini_bool(False)
+        if shared:
+            return _ini_bool(int(pad.inputs[found[0]].value) < 0)
+        return _ini_bool((axis := relaxed.get(found[0])) is not None and axis['reversed'])
 
     return {
         'wheel_steer_axis': axis_id(steer),
@@ -64,6 +74,8 @@ def _wheel_axes(pad: Controller, /) -> dict[str, str]:
         'wheel_brake_axis': axis_id(brake),
         'wheel_accel_invert': inverted(accel),
         'wheel_brake_invert': inverted(brake),
+        'wheel_accel_half': _ini_bool(shared),
+        'wheel_brake_half': _ini_bool(shared),
     }
 
 
@@ -146,6 +158,27 @@ class Sm2Emu(Emulator):
     def screenshot_dir(self) -> Path:
         return SCREENSHOTS / self.name
 
+    @cached_property
+    def gun_precalibration_dir(self) -> Path:
+        return super().gun_precalibration_dir / self.name
+
+    def precalibrate_guns(self) -> None:
+        if self.system != 'model2':
+            return
+
+        # sm2-emu names a save after the set it finds in the archive, not after the file
+        for src in self.gun_precalibration_dir.iterdir():
+            dest = self.nvram_dir / src.name
+            default = _NVRAM_SRC / src.name
+
+            # also replace a default save that was never changed
+            if dest.exists() and default.exists() and dest.read_bytes() == default.read_bytes():
+                dest.unlink()
+
+            if src.exists() and not dest.exists():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                src.copy(dest)
+
     async def configure(self) -> Command:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.nvram_dir.mkdir(parents=True, exist_ok=True)
@@ -191,16 +224,29 @@ class Sm2Emu(Emulator):
             'vsync': _ini_bool(self.config.get_bool('sm2_vsync', False)),
             'show_fps': 'false',  # covered by the hud/hud_corner features instead
             'lightgun': _ini_bool(use_guns),
-            'lightgun_crosshair': _ini_bool(use_guns and guns_need_crosses(self.guns)),
+            'lightgun_crosshair': _ini_bool(
+                use_guns and self.config.get_bool('sm2_lightgun_crosshair', guns_need_crosses(self.guns))
+            ),
+            'lightgun_hide_flash': _ini_bool(self.config.get_bool('sm2_lightgun_hide_flash', False)),
             'lightgun_recoil': _ini_bool(self.config.get_bool('sm2_lightgun_recoil', True)),
             'lightgun_recoil_strength': self.config.get_str('sm2_lightgun_recoil_strength', '60'),
+            **{f'gun{gun}_button_{role}': str(code) for gun in (1, 2) for role, code in _GUN_BUTTONS.items()},
             'wheel_ffb': _ini_bool(self.config.get_bool('sm2_wheel_ffb', True)),
-            'wheel_ffb_strength': self.config.get_str('sm2_wheel_ffb_strength', '30'),
+            'wheel_ffb_strength': str(round(self.config.get_float('sm2_wheel_ffb_strength', 50))),
+            'wheel_ffb_invert': _ini_bool(self.config.get_bool('sm2_wheel_ffb_invert', False)),
             'wheel_rumble': _ini_bool(self.config.get_bool('sm2_wheel_rumble', True)),
             'wheel_rumble_strength': self.config.get_str('sm2_wheel_rumble_strength', '40'),
+            'wheel_rumble_engine': _ini_bool(self.config.get_bool('sm2_wheel_rumble_engine', True)),
+            'wheel_steer_deadzone': str(round(self.config.get_float('sm2_wheel_deadzone', 0))),
+            'wheel_shift_neutral_ms': self.config.get_str('sm2_shift_neutral', '0'),
+            'wheel_indy_deadband': str(round(self.config.get_float('sm2_wheel_indy_deadband', 0))),
+            'wheel_indy_full_power': str(round(self.config.get_float('sm2_wheel_indy_full_power', 63))),
             **wheel_managed,
             'pad_rumble': _ini_bool(self.config.get_bool('sm2_pad_rumble', True)),
-            'pad_rumble_strength': self.config.get_str('sm2_pad_rumble_strength', '60'),
+            'pad_rumble_strength': str(round(self.config.get_float('sm2_pad_rumble_strength', 50))),
+            'pad_rumble_cornering': _ini_bool(self.config.get_bool('sm2_pad_rumble_cornering', True)),
+            'pad_stick_deadzone': str(round(self.config.get_float('sm2_pad_stick_deadzone', 5))),
+            'pad_stick_sensitivity': str(round(self.config.get_float('sm2_pad_stick_sensitivity', 100))),
             'rom_dir': str(self.roms_dir),
             'nvram_dir': str(self.nvram_dir),
             'screenshot_dir': str(self.screenshot_dir),
@@ -209,6 +255,7 @@ class Sm2Emu(Emulator):
             'render_scale': self.config.get_str('sm2_render_scale', '1'),
             'scaling_method': self.config.get_str('sm2_scaling_method', 'sharp'),
             'aspect_mode': self.config.get_str('sm2_aspect_mode', '4:3'),
+            'extended_draw_distance': _ini_bool(self.config.get_bool('sm2_draw_distance', True)),
             'texture_filter': self.config.get_str('sm2_texture_filter', 'faithful'),
             'anisotropy': self.config.get_str('sm2_anisotropy', '4'),
             'upscale_2d': self.config.get_str('sm2_upscale_2d', 'faithful'),

@@ -54,8 +54,8 @@ def rc_path(fs: FakeFilesystem) -> Path:
 
 
 @pytest.fixture
-def labwc_pid(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv('LABWC_PID', '12345')
+def labwc_pid(mocker: MockerFixture) -> None:
+    mocker.patch.dict('os.environ', {'LABWC_PID': '12345'}, clear=True)
 
 
 def _find_rule(root: ET.Element[str], /, *, identifier: str | None = None, title: str | None = None) -> ET.Element[str]:
@@ -231,9 +231,9 @@ class TestWindowRuleToggleFullscreen:
 
 
 class TestLabWCConfigSetTouchscreen:
-    def test_set_touchscreen_creates_touch_element(self, rc_path: Path) -> None:
+    def test_set_touchscreens_creates_touch_element(self, rc_path: Path) -> None:
         config = LabWCConfig(path=rc_path)
-        config.set_touchscreen(name='touch-panel', map_to_output_name='HDMI-A-1')
+        config.set_touchscreens([('touch-panel', 'HDMI-A-1', None)])
 
         touch_elements = _touch_elements(config.root)
 
@@ -242,10 +242,10 @@ class TestLabWCConfigSetTouchscreen:
         assert touch_elements[0].get('mapToOutput') == 'HDMI-A-1'
         assert touch_elements[0].get('mouseEmulation') == 'no'
 
-    def test_set_touchscreen_replaces_existing_entries(self, rc_path: Path) -> None:
+    def test_set_touchscreens_replaces_existing_entries(self, rc_path: Path) -> None:
         rc_path.write_text(_EXISTING_TOUCH_RC_XML)
         config = LabWCConfig(path=rc_path)
-        config.set_touchscreen(name='new-touch', map_to_output_name='HDMI-A-2')
+        config.set_touchscreens([('new-touch', 'HDMI-A-2', None)])
 
         touch_elements = _touch_elements(config.root)
 
@@ -253,18 +253,54 @@ class TestLabWCConfigSetTouchscreen:
         assert touch_elements[0].get('deviceName') == 'new-touch'
         assert touch_elements[0].get('mapToOutput') == 'HDMI-A-2'
 
-    def test_set_touchscreen_clear_removes_existing_entries(self, rc_path: Path) -> None:
+    def test_set_touchscreens_empty_removes_existing_entries(self, rc_path: Path) -> None:
         rc_path.write_text(_EXISTING_TOUCH_RC_XML)
         config = LabWCConfig(path=rc_path)
-        config.set_touchscreen()
+        config.set_touchscreens([])
 
         assert _touch_elements(config.root) == []
 
-    def test_set_touchscreen_requires_both_name_and_output(self, rc_path: Path) -> None:
+    def test_set_touchscreens_maps_each_device_with_calibration(self, rc_path: Path) -> None:
         config = LabWCConfig(path=rc_path)
-        config.set_touchscreen(name='touch-panel', map_to_output_name=None)
+        config.set_touchscreens([('bottom-touch', 'DSI-1', 0), ('top-touch', 'DP-1', 1)])
 
-        assert _touch_elements(config.root) == []
+        touch_elements = _touch_elements(config.root)
+
+        assert [(t.get('deviceName'), t.get('mapToOutput')) for t in touch_elements] == [
+            ('bottom-touch', 'DSI-1'),
+            ('top-touch', 'DP-1'),
+        ]
+        matrices = {
+            d.get('category'): d.findtext('./calibrationMatrix') for d in config.root.findall('./libinput/device')
+        }
+        assert matrices == {'bottom-touch': '1 0 0 0 1 0', 'top-touch': '0 -1 1 1 0 0'}
+
+    def test_set_touchscreens_removes_stale_calibration(self, rc_path: Path) -> None:
+        config = LabWCConfig(path=rc_path)
+        config.set_touchscreens([('top-touch', 'DP-1', 1)])
+        config.set_touchscreens([('bottom-touch', 'DSI-1', 0)])
+
+        assert [t.get('deviceName') for t in _touch_elements(config.root)] == ['bottom-touch']
+        assert [d.get('category') for d in config.root.findall('./libinput/device')] == ['bottom-touch']
+
+    def test_set_touchscreens_without_rotation_leaves_calibration_to_udev(self, rc_path: Path) -> None:
+        config = LabWCConfig(path=rc_path)
+        config.set_touchscreens([('top-touch', 'DP-1', 1)])
+        config.set_touchscreens([('touch-panel', 'DSI-1', None)])
+
+        assert [t.get('deviceName') for t in _touch_elements(config.root)] == ['touch-panel']
+        assert config.root.find('./libinput') is None
+
+    def test_set_touchscreens_keeps_unrelated_libinput_devices(self, rc_path: Path) -> None:
+        rc_path.write_text(
+            "<labwc_config><libinput><device category='touchpad'><tap>yes</tap></device></libinput></labwc_config>"
+        )
+        config = LabWCConfig(path=rc_path)
+        config.set_touchscreens([('top-touch', 'DP-1', 3)])
+        config.set_touchscreens([])
+
+        devices = config.root.findall('./libinput/device')
+        assert [d.get('category') for d in devices] == ['touchpad']
 
 
 class TestLabWCConfigSave:
@@ -319,10 +355,9 @@ class TestLabWCConfigReconfigure:
     def test_reconfigure_skips_when_labwc_pid_unset(
         self,
         mocker: MockerFixture,
-        monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        monkeypatch.delenv('LABWC_PID', raising=False)
+        mocker.patch.dict('os.environ', {}, clear=True)
         mock_run = mocker.patch('subprocess.run')
 
         with caplog.at_level('WARNING'):

@@ -32,6 +32,12 @@ msgstr "Perfil d'àudio"
 msgid "Audio Source"
 msgstr "Font d’àudio"
 
+msgid "Auto"
+msgstr "AUTOMÀTIC"
+
+msgid "BCC screen"
+msgstr "Pantalla BCC"
+
 msgid "Balanced"
 msgstr "Balancejat"
 

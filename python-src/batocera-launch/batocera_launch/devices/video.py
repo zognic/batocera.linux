@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import subprocess
 from contextlib import asynccontextmanager
@@ -11,7 +12,6 @@ from typing import TYPE_CHECKING, Final, Literal
 
 from batocera_common.asyncio import run
 
-from ..exceptions import BatoceraException
 from ..types import Resolution, ScreenInfo
 
 if TYPE_CHECKING:
@@ -45,45 +45,18 @@ async def get_refresh_rate() -> str:  # noqa: RET503
 
 
 async def min_to_max_resolution() -> None:
-    await run('batocera-resolution', 'minToMaxResolution', shell=True)
-
-
-_max_res_re: Final = re.compile(r'^max-[0-9]*x[0-9]*$')
-
-
-async def mode_exists(video_mode: str) -> bool:
-    # max resolution given
-    if video_mode.startswith('max-'):
-        matches = _max_res_re.match(video_mode)
-        if matches is not None:
-            return True
-
-    # specific resolution given
-    proc = await run('batocera-resolution', 'listModes', shell=True)
-    for line in proc.stdout.decode().splitlines():
-        values = line.split(':')
-        if video_mode == values[0]:
-            return True
-
-    _logger.error('invalid video mode %s', video_mode)
-    return False
+    await run('batocera-resolution', 'minTomaxResolution', shell=True)
 
 
 async def change_mode(video_mode: str) -> None:
-    if await mode_exists(video_mode):
-        cmd = ['batocera-resolution', 'setMode', video_mode]
-        _logger.debug('change_mode(%s): %s', video_mode, cmd)
-        max_tries = 2  # maximum number of tries to set the mode
-        for i in range(1, max_tries + 1):
-            try:
-                proc = await run(*cmd, text=True, check=True)
-                _logger.debug(proc.stdout.strip())
-                return
-            except subprocess.CalledProcessError as e:
-                _logger.error('Error setting video mode: %s', e.stderr)
-                if i == max_tries - 1:
-                    raise BatoceraException('Error setting video mode') from e
-                await asyncio.sleep(1)
+    # the backend validates the mode and reports a bad one on stderr; the game still launches
+    cmd = ['batocera-resolution', 'setMode', video_mode]
+    _logger.debug('change_mode(%s): %s', video_mode, cmd)
+    proc = await run(*cmd, text=True)
+    if proc.returncode:
+        _logger.error('Error setting video mode %s: %s', video_mode, proc.stderr.strip())
+    elif proc.stdout:
+        _logger.debug(proc.stdout.strip())
 
 
 async def get_current_resolution(name: str | None = None) -> Resolution:
@@ -118,6 +91,24 @@ async def list_outputs(*, timeout: float | None = None) -> list[str]:
 async def get_current_output() -> str:
     proc = await run('batocera-resolution', 'currentOutput', shell=True, text=True)
     return proc.stdout.strip()
+
+
+_WAYLAND_OUTPUT_NAME_RE: Final = re.compile(r'^\s+name: (?P<name>\S+)$')
+
+
+def parse_wayland_outputs(info: str, /) -> list[str]:
+    return [match['name'] for line in info.splitlines() if (match := _WAYLAND_OUTPUT_NAME_RE.match(line))]
+
+
+async def list_wayland_outputs() -> list[str]:
+    # wl_output globals in registry order, which is how Qt numbers its screens; wlr-randr orders them differently
+    try:
+        proc = await run('wayland-info', '-i', 'wl_output', text=True, check=True)
+    except Exception as e:
+        _logger.debug('Failed to list wayland outputs: %s', e)
+        return []
+
+    return parse_wayland_outputs(proc.stdout)
 
 
 async def supports_system_rotation() -> bool:
@@ -231,24 +222,44 @@ _OPENGL_VENDOR_RE: Final = re.compile(r'^OpenGL vendor string: (?P<vendor>.*)$')
 _OPENGL_VERSION_RE: Final = re.compile(r'^OpenGL version string: (?P<version>\d+\.\d+)\b')
 
 
-async def get_gl_info() -> GLInfo:
-    vendor = 'unknown'
+_PCI_GPU_VENDORS: Final = {'0x10de': 'nvidia', '0x1002': 'amd', '0x8086': 'intel'}
+
+
+def _pci_gpu_vendor() -> str:
+    for path in sorted(Path('/sys/class/drm').glob('card[0-9]*/device/vendor')):
+        try:
+            vendor = path.read_text().strip()
+        except OSError:
+            continue
+
+        if vendor in _PCI_GPU_VENDORS:
+            return _PCI_GPU_VENDORS[vendor]
+
+    return 'unknown'
+
+
+def gl_info() -> GLInfo:
+    vendor = _pci_gpu_vendor()
     version = 0
 
-    if _GLXINFO_BIN.exists():
+    # glxinfo needs an X client, which on wayland means spawning Xwayland: only worth it where the version matters
+    if _GLXINFO_BIN.exists() and (not os.environ.get('WAYLAND_DISPLAY') or vendor in ('nvidia', 'amd')):
         try:
-            proc = await run('glxinfo -B', text=True, check=True)
+            output = subprocess.run(['glxinfo', '-B'], capture_output=True, text=True, check=True).stdout
 
-            for line in proc.stdout.splitlines():
+            for line in output.splitlines():
                 if match := _OPENGL_VENDOR_RE.match(line):
                     vendor = match.group('vendor').strip().casefold()
                 if match := _OPENGL_VERSION_RE.match(line):
-                    version_str = match.group('version').strip()
-                    version = float(version_str)
+                    version = float(match.group('version').strip())
         except Exception:
             pass
 
     return GLInfo(vendor=vendor, version=version)
+
+
+async def get_gl_info() -> GLInfo:
+    return await asyncio.to_thread(gl_info)
 
 
 @asynccontextmanager
@@ -257,6 +268,7 @@ async def prepare_resolution(limit_resolution: bool, target_mode: str, /) -> Asy
     current_mode = original_mode
 
     restore_resolution = False
+    game_resolution: Resolution | None = None
 
     if limit_resolution:
         # Limit the display resolution to the maximum supported resolution before starting the game
@@ -265,7 +277,12 @@ async def prepare_resolution(limit_resolution: bool, target_mode: str, /) -> Asy
 
         await min_to_max_resolution()
 
-        current_mode = await get_current_mode()
+        # no mode change follows, so both can be queried at once
+        if target_mode == 'default':
+            current_mode, game_resolution = await asyncio.gather(get_current_mode(), get_current_resolution())
+        else:
+            current_mode = await get_current_mode()
+
         if current_mode != original_mode:
             restore_resolution = True
 
@@ -276,7 +293,8 @@ async def prepare_resolution(limit_resolution: bool, target_mode: str, /) -> Asy
         await change_mode(target_mode)
         restore_resolution = True
 
-    game_resolution = await get_current_resolution()
+    if game_resolution is None:
+        game_resolution = await get_current_resolution()
 
     if is_resolution_reversed():
         game_resolution = Resolution(width=game_resolution.height, height=game_resolution.width)

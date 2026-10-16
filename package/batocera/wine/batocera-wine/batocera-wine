@@ -185,7 +185,6 @@ waitWineServer() {
 wine_options() {
     WINEPOINT=$1
     NTSYNC="$(get_setting ntsync "${SYSTEM}" "${ROMGAMENAME}")"
-    PBA="$(get_setting pba "${SYSTEM}" "${ROMGAMENAME}")"
     FSR="$(get_setting fsr "${SYSTEM}" "${ROMGAMENAME}")"
     FPS_LIMIT="$(get_setting fps_limit "${SYSTEM}" "${ROMGAMENAME}")"
     ALLOW_XIM="$(get_setting allow_xim "${SYSTEM}" "${ROMGAMENAME}")"
@@ -197,7 +196,6 @@ wine_options() {
     ENABLE_VKREFLEX="$(get_setting enable_vkreflex "${SYSTEM}" "${ROMGAMENAME}")"
     ENABLE_HIDRAW="$(get_setting enable_hidraw "${SYSTEM}" "${ROMGAMENAME}")"
     DXVK_RESET_CACHE="$(get_setting dxvk_reset_cache "${SYSTEM}" "${ROMGAMENAME}")"
-    WINE_NTFS="$(get_setting wine_ntfs "${SYSTEM}" "${ROMGAMENAME}")"
     WINE_DEBUG="$(get_setting wine_debug "${SYSTEM}" "${ROMGAMENAME}")"
     KEYBOARD="$(/usr/bin/batocera-settings-get system.kblayout)"
     VIRTUAL_DESKTOP="$(get_setting virtual_desktop "${SYSTEM}" "${ROMGAMENAME}")"
@@ -260,9 +258,6 @@ wine_options() {
         fi
     fi
 
-    export PBA_ENABLE=0
-    [[ "${PBA}" = 1 ]] && PBA_ENABLE=1
-
     export DXVK_FRAME_RATE=0
     [[ "${FPS_LIMIT}" = 1 ]] && DXVK_FRAME_RATE=60
 
@@ -300,8 +295,8 @@ wine_options() {
     export WINE_DISABLE_WRITE_WATCH=0
     [[ "${NO_WRITE_WATCH}" = 1 ]] && WINE_DISABLE_WRITE_WATCH=1
 
-    export WINE_LARGE_ADDRESS_AWARE=0
-    [[ "${FORCE_LARGE_ADRESS}" = 1 ]] && WINE_LARGE_ADDRESS_AWARE=1
+    # unset leaves large address aware on
+    [[ "${FORCE_LARGE_ADRESS}" = 0 ]] && export WINE_LARGE_ADDRESS_AWARE=0
 
     export WINE_HEAP_DELAY_FREE=0
     [[ "${HEAP_DELAY_FREE}" = 1 ]] && WINE_HEAP_DELAY_FREE=1
@@ -323,9 +318,6 @@ wine_options() {
 
     export DXVK_STATE_CACHE=1
     [[ "${DXVK_RESET_CACHE}" = 1 ]] && DXVK_STATE_CACHE=reset
-
-    export NTFS_MODE=0
-    [[ "${WINE_NTFS}" = 1 ]] && NTFS_MODE=1
 
     export STAGING_SHARED_MEMORY=1
     export ULIMIT_SIZE=1048576
@@ -442,6 +434,19 @@ reg_install() {
         WINEPREFIX=${WINEPREFIX} ${CMD_PREFIX} "${WINE}" reg add "HKEY_CURRENT_USER\Control Panel\Colors" /v "Background" /t REG_SZ /d "0 0 0" /f &>/dev/null
     fi
 
+    # Wine picks its own Wayland driver whenever Wayland is running, the SDL 1.2 games Mugen runs need XWayland's X11 driver
+    if [[ "${SYSTEM}" = "mugen" && "${SYSTEM_DISPLAY_MODE}" = "wayland" ]]; then
+        if [[ "${WAYLAND_DRIVER}" != "native" ]]; then
+            if ! grep -q '^"Graphics"="x11"' "${WINEPOINT}/user.reg" 2>/dev/null; then
+                WINEPREFIX=${WINEPOINT} ${CMD_PREFIX} "${WINE}" reg add "HKEY_CURRENT_USER\Software\Wine\Drivers" /v "Graphics" /t REG_SZ /d "x11" /f &>/dev/null
+                waitWineServer 0
+            fi
+        elif grep -q '^"Graphics"="x11"' "${WINEPOINT}/user.reg" 2>/dev/null; then
+            WINEPREFIX=${WINEPOINT} ${CMD_PREFIX} "${WINE}" reg delete "HKEY_CURRENT_USER\Software\Wine\Drivers" /v "Graphics" /f &>/dev/null
+            waitWineServer 0
+        fi
+    fi
+
     if [[ -d "$ii" ]]; then
         readarray -t i < <(find "$ii" -maxdepth 1 -type f -iname "*.reg" -printf "%p\n")
         [[ "${#i[@]}" -eq 0 ]] && { rmdir "$ii"; echo "${FUNCNAME[0]}: Place only reg-files to $ii" >&2; return 0; }
@@ -457,6 +462,11 @@ reg_install() {
             mv --backup=t "$file" "${USER_DIR}/installed.regs"
         done
         rmdir  "$ii" || { echo "${FUNCNAME[0]}: Place only reg-files to $ii" >&2; }
+    fi
+
+    if [[ "${NVAPI}" = 1 && -e "/usr/lib/nvidia/wine/nvngx.dll" ]] && ! grep -q 'NGXCore' "${WINEPOINT}/system.reg"; then
+        WINEPREFIX=${WINEPOINT} ${CMD_PREFIX} "${WINE}" reg add "HKEY_LOCAL_MACHINE\Software\NVIDIA Corporation\Global\NGXCore" /v "FullPath" /t REG_SZ /d "C:\Windows\System32" /f
+        waitWineServer 0
     fi
 
     if [[ "${WINE_ENABLE_HIDRAW}" = 1 ]]; then
@@ -654,6 +664,10 @@ dxvk_install() {
     if [[ "${NVAPI}" = 1 ]]; then
         export DXVK_ENABLE_NVAPI=1
         export WINEDLLOVERRIDES="${WINEDLLOVERRIDES};nvapi,nvapi64=n"
+        # NVIDIA's NGX core for Wine, needed by games for DLSS
+        if [[ -e "/usr/lib/nvidia/wine/nvngx.dll" && "${WINEARCH}" != "win32" ]]; then
+            ln -sf /usr/lib/nvidia/wine/{_nvngx.dll,nvngx.dll,nvngx_dlssg.dll} "${WINEPREFIX}/drive_c/windows/system32" || return 1
+        fi
     else
         export DXVK_ENABLE_NVAPI=0
         export WINEDLLOVERRIDES="${WINEDLLOVERRIDES};nvapi64,nvapi="
@@ -692,7 +706,7 @@ saveFilesToUserdata() {
     WINE_SAVEDIR="$2"
     WINE_SAVEFILES="$3"
 
-    [[ -z "${WINE_SAVEDIR}" && -z "${WINE_SAVEFILES}" ]] && return 0 #No argument in autorun.cmd -> return
+    [[ -z "${WINE_SAVEDIR}" ]] && return 0 #No argument in autorun.cmd -> return
 
     #Prepare for Savegames Files or Folders, SYSTEM_SAVEDIR and WINE_SAVEDIR are needed here
     mkdir -p "${SYSTEM_SAVEDIR}"                                         #Create dir to store our savegames in /userdata
@@ -702,7 +716,7 @@ saveFilesToUserdata() {
     WINE_SAVEDIR="$(basename "${WINE_SAVEDIR}")"                         #Savegamedir itself, content is copied/linked
     echo "Preparing Savefiles: WINE_SAVEDIR: ${WINE_SAVEDIR} -> SYSTEM_SAVEDIR: ${SYSTEM_SAVEDIR}"
 
-    if [[ -n "${WINE_SAVEDIR}" ]]; then
+    if [[ -z "${WINE_SAVEFILES}" ]]; then
         #Copy existing savedir content and link whole wine_savedir directory, check if dir is a symlink or not
         if [[ ! -L "${WINE_SAVEDIR}" && -d "${WINE_SAVEDIR}" ]]; then
             cp -r "${WINE_SAVEDIR}/." "${SYSTEM_SAVEDIR}" || { echo "${FUNCNAME[0]}: Error in copying files ${WINE_SAVEDIR} -> ${SYSTEM_SAVEDIR}" >&2; return 1; }
@@ -711,8 +725,8 @@ saveFilesToUserdata() {
         [[ ! -L "${WINE_SAVEDIR}" ]] && ln -s "${SYSTEM_SAVEDIR}" "${WINE_SAVEDIR}"
         popd >/dev/null
 
-    elif [[ -n "${WINE_SAVEFILES}" ]]; then
-        mkdir "${WINE_SAVEDIR}"
+    else
+        mkdir -p "${WINE_SAVEDIR}"
         pushd "${WINE_SAVEDIR}" >/dev/null                               #You are working inside the game saves dir
         #split the files list to array with ; delimiter
         IFS=';' read -r -a SAVEFILES_ARRAY <<< "${WINE_SAVEFILES}"

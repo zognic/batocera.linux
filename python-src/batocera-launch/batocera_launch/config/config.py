@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections import ChainMap
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal, Self, cast, overload
 
 from batocera_common.dataclasses import cached_dataclass, cached_property
@@ -15,12 +15,23 @@ from .defaults import load_defaults, load_system_defaults
 from .es_settings import ESSettings
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, KeysView, MutableMapping, ValuesView
+    from collections.abc import Iterator, KeysView, Mapping, MutableMapping, ValuesView
     from pathlib import Path
 
     from ..cli.arguments import Arguments
 
 _logger: Final = logging.getLogger(__name__)
+
+
+def _settings_sections(system: str, rom: Path, /) -> Iterator[str]:
+    # sanitize rule by EmulationStation
+    # see FileData::getConfigurationName() on batocera-emulationstation
+    settings_name = rom.name.replace('=', '').replace('#', '')
+
+    yield f'{system}["{settings_name}"]'  # game-specific
+    yield f'{system}.folder["{rom.parent}"]'  # folder-specific
+    yield system
+
 
 type UIMode = Literal['Full', 'Kiosk', 'Kid']
 
@@ -127,6 +138,10 @@ class Config:
 class SystemConfig(Config):
     cli_args: Arguments
     es_settings: ESSettings
+    user_config: KeyValueConfig
+    system_settings: Mapping[str, str]
+    global_settings: Mapping[str, str]
+    system_defaults: Mapping[str, Any]
     system: str
     rom: Path
     emulator: str
@@ -134,18 +149,27 @@ class SystemConfig(Config):
     raw_core: str | None
     core: str
     core_forced: bool
-    use_guns: bool
-    use_wheels: bool
+    use_guns: bool = field(init=False)
+    use_wheels: bool = field(init=False)
     ui_mode: Literal['Full', 'Kiosk', 'Kid']
     show_fps: bool
-    netplay_mode: str | None
-    netplay_password: str | None
-    netplay_server_ip: str | None
-    netplay_server_port: str | None
-    netplay_server_session: str | None
-    state_slot: str | None
-    autosave: str | None
-    state_filename: str | None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, 'use_guns', self.get_bool('use_guns'))
+        object.__setattr__(self, 'use_wheels', self.get_bool('use_wheels'))
+
+    def remove_user_setting(self, key: str, value: str, /) -> None:
+        names = {f'{section}.{key}' for section in _settings_sections(self.system, self.rom)}
+        lines = BATOCERA_CONF.read_text(encoding='latin1').splitlines(keepends=True)
+        kept = [
+            line
+            for line in lines
+            if not ((parts := line.partition('='))[0].strip() in names and parts[2].strip() == value)
+        ]
+
+        if len(kept) != len(lines):
+            _logger.info('removing %s=%s from %s', key, value, BATOCERA_CONF)
+            BATOCERA_CONF.write_text(''.join(kept), encoding='latin1')
 
     @property
     def video_mode(self) -> str:
@@ -176,16 +200,10 @@ class SystemConfig(Config):
 
         rom = args.rom
 
-        # sanitize rule by EmulationStation
-        # see FileData::getConfigurationName() on batocera-emulationstation
-        settings_name = rom.name.replace('=', '').replace('#', '')
-
-        user_settings = ChainMap(
-            user_config.section(f'{args.system}["{settings_name}"]'),  # game-specific
-            user_config.section(f'{args.system}.folder["{rom.parent}"]'),  # folder-specific
-            user_config.section(args.system),
-            user_config.section('global'),
-        )
+        system_settings = ChainMap(*(user_config.section(section) for section in _settings_sections(args.system, rom)))
+        global_settings = user_config.section('global')
+        user_settings = ChainMap(system_settings, global_settings)
+        system_defaults = load_system_defaults(args.system)
 
         # A few emulators have config options named "language", so "system.language" is chosen
         # in order to prevent conflicts with config options from es_features.yaml
@@ -198,7 +216,7 @@ class SystemConfig(Config):
             {f'controllers.{key}': value for key, value in user_config.section_items('controllers')},
             {f'display.{key}': value for key, value in user_config.section_items('display', keep_defaults=True)},
             # read the configuration from the batocera-launch defaults files
-            load_system_defaults(args.system),
+            system_defaults,
         )
 
         if 'emulator' not in data or not data['emulator']:
@@ -221,10 +239,50 @@ class SystemConfig(Config):
         if args.core is not None:
             core = args.core
 
+        if 'use_guns' not in data and args.lightgun:
+            data['use_guns'] = True
+        elif 'use_guns' in data:
+            if args.lightgun:
+                _logger.warning(
+                    "use_guns manually set to '%s' to flagged game (auto-detection overridden)", data['use_guns']
+                )
+            else:
+                _logger.info("use_guns manually set to '%s' to flagless game", data['use_guns'])
+
+        if 'use_wheels' not in data and args.wheel:
+            data['use_wheels'] = True
+        elif 'use_wheels' in data:
+            if args.wheel:
+                _logger.warning(
+                    "use_wheels manually set to '%s' to flagged game (auto-detection overridden)",
+                    data['use_wheels'],
+                )
+            else:
+                _logger.info("use_wheels manually set to '%s' to flagless game", data['use_wheels'])
+
+        data.update(
+            (key, value)
+            for key, value in (
+                ('netplay.mode', args.netplaymode),
+                ('netplay.password', args.netplaypass),
+                ('netplay.server.ip', args.netplayip),
+                ('netplay.server.port', args.netplayport),
+                ('netplay.server.session', args.netplaysession),
+                ('state_slot', args.state_slot),
+                ('autosave', args.autosave),
+                ('state_filename', args.state_filename),
+            )
+            if value is not None
+        )
+
         return cls(
             data,
             cli_args=args,
             es_settings=es_settings,
+            user_config=user_config,
+            system_settings=system_settings,
+            global_settings=global_settings,
+            system_defaults=system_defaults,
             system=args.system,
             rom=rom,
             emulator=emulator,
@@ -232,16 +290,6 @@ class SystemConfig(Config):
             raw_core=core,
             core=core or '',
             core_forced=('core' in user_settings or args.core is not None),
-            use_guns=data.get('use_guns', args.lightgun or False),
-            use_wheels=data.get('use_wheels', args.wheel or False),
             ui_mode=ui_mode,
             show_fps=show_fps,
-            netplay_mode=args.netplaymode,
-            netplay_password=args.netplaypass,
-            netplay_server_ip=args.netplayip,
-            netplay_server_port=args.netplayport,
-            netplay_server_session=args.netplaysession,
-            state_slot=args.state_slot,
-            autosave=args.autosave,
-            state_filename=args.state_filename,
         )

@@ -46,8 +46,10 @@ class BStone(Emulator):
 
         # Configuration options
         config_lines.append(f'vid_is_widescreen "{1 if self.config.get_bool("bstone_widescreen") else 0}"\n')
-        config_lines.append(f'vid_is_vsync "{1 if self.config.get_bool("bstone_vsync") else 0}"\n')
+        config_lines.append(f'vid_is_vsync "{1 if self.config.get_bool("bstone_vsync", True) else 0}"\n')
         config_lines.append(f'vid_is_ui_stretched "{1 if self.config.get_bool("bstone_ui_stretched") else 0}"\n')
+
+        self.config_dir.mkdir(parents=True, exist_ok=True)
 
         # Handle existing file or create a new file
         config_file = self.config_dir / 'bstone_config.txt'
