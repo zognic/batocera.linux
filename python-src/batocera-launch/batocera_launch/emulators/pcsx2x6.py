@@ -50,7 +50,7 @@ def _gfx_ratio_from_config(config: SystemConfig) -> str:
     ratio = config.get('pcsx2x6_ratio')
     if ratio == '16:9':
         return '16:9'
-    if ratio == 'full':
+    if ratio == 'Stretch':
         return 'Stretch'
     return '4:3'
 
@@ -75,13 +75,14 @@ class Pcsx2x6(Emulator):
         return {
             'name': 'pcsx2x6',
             'keys': {
-                'exit': ['KEY_LEFTALT', 'KEY_F4'],
+                'exit': 'KEY_F10',
                 'menu': 'KEY_ESC',
                 'pause': 'KEY_ESC',
                 'save_state': 'KEY_F1',
                 'restore_state': 'KEY_F3',
                 'previous_slot': ['KEY_LEFTSHIFT', 'KEY_F2'],
                 'next_slot': 'KEY_F2',
+                'coin': 'KEY_F12',
             },
         }
 
@@ -345,19 +346,15 @@ async def _configure_ini(
         )
         pcsx2x6_ini_config.set(
             'Achievements',
-            'PrimedIndicators',
+            'Overlays',
             config.get_bool('retroachievements.challenge_indicators', return_values=('true', 'false')),
         )
-        pcsx2x6_ini_config.set(
-            'Achievements',
-            'RichPresence',
-            config.get_bool('retroachievements.richpresence', return_values=('true', 'false')),
-        )
-        pcsx2x6_ini_config.set(
-            'Achievements',
-            'Leaderboards',
-            config.get_bool('retroachievements.leaderboards', return_values=('true', 'false')),
-        )
+        for key in ('LeaderboardNotifications', 'LBOverlays'):
+            pcsx2x6_ini_config.set(
+                'Achievements',
+                key,
+                config.get_bool('retroachievements.leaderboards', return_values=('true', 'false')),
+            )
         pcsx2x6_ini_config.set(
             'Achievements', 'EncoreMode', config.get_bool('retroachievements.encore', return_values=('true', 'false'))
         )
@@ -367,7 +364,6 @@ async def _configure_ini(
             config.get_bool('retroachievements.unofficial', return_values=('true', 'false')),
         )
     # set other settings
-    pcsx2x6_ini_config.set('Achievements', 'TestMode', 'false')
     pcsx2x6_ini_config.set('Achievements', 'Notifications', 'true')
     pcsx2x6_ini_config.set('Achievements', 'SoundEffects', 'true')
 
@@ -555,6 +551,7 @@ async def _configure_ini(
     pcsx2x6_ini_config.set('Hotkeys', 'ToggleSlowMotion', 'Keyboard/Shift & Keyboard/Backtab')
     pcsx2x6_ini_config.set('Hotkeys', 'ToggleTurbo', 'Keyboard/Tab')
     pcsx2x6_ini_config.set('Hotkeys', 'HoldTurbo', 'Keyboard/Period')
+    pcsx2x6_ini_config.set('Hotkeys', 'ShutdownVM', 'Keyboard/F10')
 
     # Clear old USB sections to prevent lingering device configuration values
     for usb_section in ('USB1', 'USB2'):
@@ -767,6 +764,8 @@ async def _configure_ini(
 
     for k, v in jvs_mappings.items():
         pcsx2x6_ini_config.set('JVS', k, v)
+
+    _add_binding(pcsx2x6_ini_config, 'JVS', 'Coin1', 'Keyboard/F12')
 
     if pad2 is not None:
         _add_binding(pcsx2x6_ini_config, 'JVS', 'Coin1', f'{p2_sdl}/Back')
