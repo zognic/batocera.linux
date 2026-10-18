@@ -1,4 +1,4 @@
-# 2026/xx/xx - batocera.linux 44 - Malachite
+# 2026/11/xx - batocera.linux 44 - Malachite
 ### Special Notes
 - From v44 you can use `batocera-upgrade --update-bootloader` to flash required bootloader and firmware manually
   SPI u-boot, Qualcomm ABL, Raspberry Pi EEPROM, H700 u-boot
@@ -31,6 +31,7 @@
 - Odroid M2 initial support
 - R36 Ultra initial support
 - Radxa Rock-5T initial support
+- Retroid Pocket Classic initial support
 - Retroid Pocket Nova initial support
 ### Added
 - AMD handhelds: thermal profile option where the firmware exposes a platform profile (e.g. Legion Go S)
@@ -369,7 +370,7 @@
 - Xenia Edge to 17th of September build
 - Xenia to v1.0.2844
 - XRoar to v1.12.1
-- Ymir to v0.3.3
+- Ymir to v0.4.0
 ### System
 - Allwinner H616 device kernel updated to 7.2.8
 - Allwinner H700 device kernel updated to 7.2.8
@@ -388,7 +389,7 @@
 - LabWC to 0.20.2
 - Linux Firmware to 20260810
 - MangoHud to v0.8.4
-- Mesa3D to 26.2.4
+- Mesa3D to 26.2.5
 - Nvidia 580 Legacy driver to 580.178.04
 - Nvidia Open Production driver to 615.71.09
 - OpenABL replaces Rocknix ABL
